@@ -167,6 +167,10 @@ ifeq ($(CONFIG_arm),y)
   TARGET_CFLAGS:=$(filter-out -m%,$(call qstrip,$(TARGET_CFLAGS)))
 endif
 
+ifneq ($(CONFIG_TARGET_realtek_lexra),)
+  GCC_CONFIGURE+= --with-arch=lexra
+endif
+
 ifeq ($(CONFIG_TARGET_x86)$(CONFIG_USE_GLIBC)$(CONFIG_INSTALL_GCCGO),yyy)
   TARGET_CFLAGS+=-fno-split-stack
 endif
