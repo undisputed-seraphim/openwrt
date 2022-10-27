@@ -1,0 +1,50 @@
+--- a/arch/mips/Kbuild.platforms
++++ b/arch/mips/Kbuild.platforms
+@@ -23,6 +23,7 @@ platform-$(CONFIG_PIC32MZDA)		+= pic32/
+ platform-$(CONFIG_RALINK)		+= ralink/
+ platform-$(CONFIG_MIKROTIK_RB532)	+= rb532/
+ platform-$(CONFIG_MACH_REALTEK_RTL)	+= rtl-otto/
++platform-$(CONFIG_RTL8198C)		+= rtl8198c/
+ platform-$(CONFIG_SGI_IP22)		+= sgi-ip22/
+ platform-$(CONFIG_SGI_IP27)		+= sgi-ip27/
+ platform-$(CONFIG_SGI_IP28)		+= sgi-ip22/
+--- a/arch/mips/Kconfig
++++ b/arch/mips/Kconfig
+@@ -670,6 +670,37 @@ config MACH_REALTEK_RTL
+ 	select ARCH_HAS_RESET_CONTROLLER
+ 	select RESET_CONTROLLER
+ 
++config RTL8198C
++	bool "Realtek RTL8198C based platforms"
++	# Copied from MACH_REALTEK_RTL
++	select DMA_NONCOHERENT
++	select IRQ_MIPS_CPU
++	select SYS_HAS_CPU_MIPS32_R1
++	select SYS_HAS_CPU_MIPS32_R2
++	select SYS_SUPPORTS_BIG_ENDIAN
++	select SYS_SUPPORTS_32BIT_KERNEL
++	select SYS_SUPPORTS_MIPS16
++	select BOOT_RAW
++	select PINCTRL
++	select USE_OF
++	# select REALTEK_OTTO_TIMER
++	select NO_EXCEPT_FILL
++	select SYS_SUPPORTS_HIGHMEM
++	select SYS_HAS_EARLY_PRINTK
++	select SYS_HAS_EARLY_PRINTK_8250
++	select USE_GENERIC_EARLY_PRINTK_8250
++	select ARCH_HAS_RESET_CONTROLLER
++	select RESET_CONTROLLER
++	# Chip-specific selects
++	select MIPS_CPU_SCACHE
++	select MIPS_GIC
++	select COMMON_CLK
++	select CLKSRC_MIPS_GIC
++	select SYS_SUPPORTS_SMP
++	select SYS_SUPPORTS_MIPS_CPS
++	select CPU_SUPPORTS_CPUFREQ
++	select MIPS_EXTERNAL_TIMER
++
+ config SGI_IP22
+ 	bool "SGI IP22 (Indy/Indigo2)"
+ 	select ARC_MEMORY
