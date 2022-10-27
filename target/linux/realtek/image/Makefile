@@ -80,6 +80,34 @@ define Build/7z
 	mv $@.new $@
 endef
 
+define Build/loader-common
+        rm -rf $@.src
+        $(MAKE) -C lzma-loader \
+                PKG_BUILD_DIR="$@.src" \
+                TARGET_DIR="$(dir $@)" LOADER_NAME="$(notdir $@)" \
+                BOARD="$(BOARDNAME)" PLATFORM="$(LOADER_PLATFORM)" \
+                LZMA_TEXT_START=$(LZMA_TEXT_START) \
+                LOADADDR=$(LOADADDR) \
+                $(1) compile loader.$(LOADER_TYPE)
+        mv "$@.$(LOADER_TYPE)" "$@"
+        rm -rf $@.src
+endef
+
+define Build/loader-kernel
+        $(call Build/loader-common,LOADER_DATA="$@")
+endef
+
+define Device/Default
+  PROFILES = Default
+  KERNEL := kernel-bin | append-dtb | gzip | uImage gzip
+  KERNEL_INITRAMFS := kernel-bin | append-dtb | gzip | uImage gzip
+  DEVICE_DTS_DIR := ../dts-$(KERNEL_PATCHVER)
+  DEVICE_DTS = $$(SOC)_$(1)
+  IMAGES := sysupgrade.bin
+  IMAGE/sysupgrade.bin := append-kernel | pad-to 64k | append-rootfs | pad-rootfs | \
+	check-size | append-metadata
+endef
+
 define Build/h3c-image
 	$(STAGING_DIR_HOST)/bin/mkh3cimg \
 		-i $(@) \
