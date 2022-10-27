@@ -10,7 +10,7 @@
  platform-$(CONFIG_SGI_IP28)		+= sgi-ip22/
 --- a/arch/mips/Kconfig
 +++ b/arch/mips/Kconfig
-@@ -1038,8 +1038,58 @@ config NLM_XLP_BOARD
+@@ -1038,6 +1038,68 @@ config NLM_XLP_BOARD
  	  This board is based on Netlogic XLP Processor.
  	  Say Y here if you have a XLP based board.
  
@@ -33,8 +33,6 @@
 +	select RESET_CONTROLLER
 +	select USE_OF
 +
- endchoice
- 
 +config RTL838X
 +	bool "Realtek RTL838X based platforms"
 +	depends on RTL83XX
@@ -66,10 +64,22 @@
 +	select SYS_SUPPORTS_SMP
 +	select SYS_SUPPORTS_MIPS_CPS
 +
++config RTL8198C
++	bool "Realtek RTL8198C based platforms"
++	depends on RTL83XX
++	select CSRC_R4K
++	select CEVT_R4K
++	select MIPS_CPU_SCACHE
++	select MIPS_GIC
++	select COMMON_CLK
++	select CLKSRC_MIPS_GIC
++	select SYS_SUPPORTS_SMP
++	select SYS_SUPPORTS_MIPS_CPS
++
+ endchoice
+ 
  source "arch/mips/alchemy/Kconfig"
- source "arch/mips/ath25/Kconfig"
- source "arch/mips/ath79/Kconfig"
-@@ -1098,6 +1148,9 @@ config CEVT_GT641XX
+@@ -1098,6 +1160,9 @@ config CEVT_GT641XX
  config CEVT_R4K
  	bool
  
