@@ -21,7 +21,7 @@ Submitted-by: Birger Koblitz <git@birger-koblitz.de>
  platform-$(CONFIG_SGI_IP28)		+= sgi-ip22/
 --- a/arch/mips/Kconfig
 +++ b/arch/mips/Kconfig
-@@ -620,21 +620,23 @@ config RALINK
+@@ -620,21 +620,65 @@ config RALINK
  
  config MACH_REALTEK_RTL
  	bool "Realtek RTL838x/RTL839x based machines"
@@ -47,13 +47,7 @@ Submitted-by: Birger Koblitz <git@birger-koblitz.de>
 +	select USE_GENERIC_EARLY_PRINTK_8250
 +	select ARCH_HAS_RESET_CONTROLLER
 +	select RESET_CONTROLLER
- 
- config SGI_IP22
- 	bool "SGI IP22 (Indy/Indigo2)"
-@@ -970,6 +972,36 @@ config CAVIUM_OCTEON_SOC
- 
- endchoice
- 
++
 +config RTL838X
 +	bool "Realtek RTL838X based platforms"
 +	depends on MACH_REALTEK_RTL
@@ -84,6 +78,17 @@ Submitted-by: Birger Koblitz <git@birger-koblitz.de>
 +	select SYS_SUPPORTS_SMP
 +	select SYS_SUPPORTS_MIPS_CPS
 +
- source "arch/mips/alchemy/Kconfig"
- source "arch/mips/ath25/Kconfig"
- source "arch/mips/ath79/Kconfig"
++config RTL8198C
++	bool "Realtek RTL8198C based platforms"
++	depends on MACH_REALTEK_RTL
++	select CSRC_R4K
++	select CEVT_R4K
++	select MIPS_CPU_SCACHE
++	select MIPS_GIC
++	select COMMON_CLK
++	select CLKSRC_MIPS_GIC
++	select SYS_SUPPORTS_SMP
++	select SYS_SUPPORTS_MIPS_CPS
+ 
+ config SGI_IP22
+ 	bool "SGI IP22 (Indy/Indigo2)"
