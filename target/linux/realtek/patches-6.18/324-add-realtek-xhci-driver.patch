@@ -1,0 +1,27 @@
+--- a/drivers/usb/host/Kconfig
++++ b/drivers/usb/host/Kconfig
+@@ -77,6 +77,14 @@ config USB_XHCI_MTK
+ 	  found in MediaTek SoCs.
+ 	  If unsure, say N.
+ 
++config USB_XHCI_REALTEK
++	tristate "xHCI support for Realtek SoCs"
++	depends on MIPS
++	help
++	  Say 'Y' to enable the support for the xHCI host controller
++	  found in Realtek SoCs like the RTL8198C.
++	  If unsure, say N.
++
+ config USB_XHCI_MVEBU
+ 	tristate "xHCI support for Marvell Armada 375/38x/37xx"
+ 	select USB_XHCI_PLATFORM
+--- a/drivers/usb/host/Makefile
++++ b/drivers/usb/host/Makefile
+@@ -73,6 +73,7 @@ obj-$(CONFIG_USB_XHCI_PLATFORM) += xhci-
+ obj-$(CONFIG_USB_XHCI_HISTB)	+= xhci-histb.o
+ obj-$(CONFIG_USB_XHCI_RCAR)	+= xhci-rcar-hcd.o
+ obj-$(CONFIG_USB_XHCI_MTK)	+= xhci-mtk-hcd.o
++obj-$(CONFIG_USB_XHCI_REALTEK)	+= xhci-realtek.o
+ obj-$(CONFIG_USB_XHCI_TEGRA)	+= xhci-tegra.o
+ obj-$(CONFIG_USB_SL811_HCD)	+= sl811-hcd.o
+ obj-$(CONFIG_USB_SL811_CS)	+= sl811_cs.o
