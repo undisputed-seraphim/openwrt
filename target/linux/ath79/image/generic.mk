@@ -1308,6 +1308,18 @@ define Device/engenius_ews511ap
 endef
 TARGET_DEVICES += engenius_ews511ap
 
+define Device/engenius_ews660ap
+  $(Device/senao_loader_okli)
+  SOC := qca9558
+  DEVICE_VENDOR := EnGenius
+  DEVICE_MODEL := EWS660AP
+  DEVICE_PACKAGES := ath10k-firmware-qca988x-ct kmod-ath10k-ct
+  IMAGE_SIZE := 11584k
+  LOADER_FLASH_OFFS := 0x220000
+  SENAO_IMGNAME := ar71xx-generic-ews660ap
+endef
+TARGET_DEVICES += engenius_ews660ap
+
 define Device/enterasys_ws-ap3705i
   SOC := ar9344
   DEVICE_VENDOR := Enterasys
@@ -1465,7 +1477,7 @@ define Device/hak5_lan-turtle
   TPLINK_HWID := 0x5348334c
   IMAGES := sysupgrade.bin
   DEVICE_PACKAGES := kmod-usb-chipidea2 -iwinfo -kmod-ath9k -swconfig \
-	-uboot-envtools -wpad-basic-wolfssl
+	-uboot-envtools -wpad-basic-mbedtls
   SUPPORTED_DEVICES += lan-turtle
 endef
 TARGET_DEVICES += hak5_lan-turtle
@@ -1478,7 +1490,7 @@ define Device/hak5_packet-squirrel
   TPLINK_HWID := 0x5351524c
   IMAGES := sysupgrade.bin
   DEVICE_PACKAGES := kmod-usb-chipidea2 -iwinfo -kmod-ath9k -swconfig \
-	-uboot-envtools -wpad-basic-wolfssl
+	-uboot-envtools -wpad-basic-mbedtls
   SUPPORTED_DEVICES += packet-squirrel
 endef
 TARGET_DEVICES += hak5_packet-squirrel
@@ -1513,7 +1525,7 @@ define Device/iodata_etg3-r
   DEVICE_VENDOR := I-O DATA
   DEVICE_MODEL := ETG3-R
   IMAGE_SIZE := 7680k
-  DEVICE_PACKAGES := -iwinfo -kmod-ath9k -wpad-basic-wolfssl
+  DEVICE_PACKAGES := -iwinfo -kmod-ath9k -wpad-basic-mbedtls
 endef
 TARGET_DEVICES += iodata_etg3-r
 
@@ -1573,7 +1585,7 @@ define Device/jjplus_ja76pf2
   SOC := ar7161
   DEVICE_VENDOR := jjPlus
   DEVICE_MODEL := JA76PF2
-  DEVICE_PACKAGES += -kmod-ath9k -swconfig -wpad-basic-wolfssl -uboot-envtools fconfig kmod-hwmon-lm75
+  DEVICE_PACKAGES += -kmod-ath9k -swconfig -wpad-basic-mbedtls -uboot-envtools fconfig kmod-hwmon-lm75
   LOADER_TYPE := bin
   LOADER_FLASH_OFFS := 0x60000
   COMPILE := loader-$(1).bin
@@ -1633,13 +1645,15 @@ define Device/letv_lba-047-ch
   SOC := qca9531
   DEVICE_VENDOR := Letv
   DEVICE_MODEL := LBA-047-CH
+  DEVICE_PACKAGES := -uboot-envtools
+  FACTORY_SIZE := 14528k
   IMAGE_SIZE := 15936k
   LOADER_FLASH_OFFS := 0x50000
   KERNEL := kernel-bin | append-dtb | lzma | uImage lzma -M 0x4f4b4c49
-  IMAGES += factory.bin
-  IMAGE/factory.bin := append-kernel | pad-to $$$$(BLOCKSIZE) | \
-	append-rootfs | pad-rootfs | check-size | pad-to 14528k | \
-	append-loader-okli-uimage $(1) | pad-to 64k
+  IMAGES += kernel.bin rootfs.bin
+  IMAGE/kernel.bin := append-loader-okli-uimage $(1) | pad-to 64k
+  IMAGE/rootfs.bin := append-kernel | pad-to $$$$(BLOCKSIZE) | \
+	append-rootfs | pad-rootfs | check-size $$$$(FACTORY_SIZE)
 endef
 TARGET_DEVICES += letv_lba-047-ch
 
@@ -2638,7 +2652,7 @@ define Device/teltonika_rut300
   DEVICE_VENDOR := Teltonika
   DEVICE_MODEL := RUT300
   SUPPORTED_TELTONIKA_DEVICES := teltonika,rut30x
-  DEVICE_PACKAGES := -kmod-ath9k -uboot-envtools -wpad-basic-wolfssl kmod-usb2
+  DEVICE_PACKAGES := -kmod-ath9k -uboot-envtools -wpad-basic-mbedtls kmod-usb2
   IMAGE_SIZE := 15552k
   IMAGES += factory.bin
   IMAGE/factory.bin = append-kernel | pad-to $$$$(BLOCKSIZE) | \

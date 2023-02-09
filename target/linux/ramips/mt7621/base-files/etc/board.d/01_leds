@@ -154,6 +154,9 @@ tplink,archer-c6u-v1)
 	ucidef_set_led_netdev "lan" "LAN" "green:lan" "br-lan"
 	ucidef_set_led_netdev "wan" "WAN" "green:wan" "wan"
 	;;
+tplink,deco-m4r-v4)
+	ucidef_set_led_netdev "lan" "LAN" "green:lan" "br-lan"
+	;;
 tplink,ec330-g5u-v1)
 	ucidef_set_led_netdev "lan" "Ethernet" "blue:ethernet" "br-lan" "link tx rx"
 	ucidef_set_led_netdev "wan" "Internet" "blue:internet" "wan" "link tx rx"
@@ -178,6 +181,9 @@ tplink,re650-v2)
 	;;
 tplink,tl-wpa8631p-v3)
 	ucidef_set_led_netdev "lan" "LAN" "green:lan" "br-lan"
+	;;
+xiaomi,mi-router-4a-gigabit-v2)
+	ucidef_set_led_netdev "wan" "wan" "blue:wan" "wan" "link"
 	;;
 xiaomi,mi-router-ac2100)
 	ucidef_set_led_netdev "wan-blue" "WAN (blue)" "blue:wan" "wan"
