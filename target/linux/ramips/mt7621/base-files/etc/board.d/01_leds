@@ -24,6 +24,10 @@ asus,rt-ax53u)
 	ucidef_set_led_wlan "wlan2g" "WiFi 2.4GHz" "mt76-phy0" "phy0tpt"
 	ucidef_set_led_wlan "wlan5g" "WiFi 5GHz" "mt76-phy1" "phy1tpt"
 	;;
+asus,rt-ax54)
+	ucidef_set_led_wlan "wlan2g" "WiFi 2.4GHz" "mt76-phy0" "phy0tpt"
+	ucidef_set_led_wlan "wlan5g" "WiFi 5GHz" "mt76-phy1" "phy1tpt"
+	;;
 asus,rt-n56u-b1)
 	ucidef_set_led_netdev "lan" "LAN link" "blue:lan" "br-lan"
 	ucidef_set_led_netdev "wan" "WAN link" "blue:wan" "wan"
@@ -72,6 +76,7 @@ dlink,dir-3060-a1)
 	ucidef_set_led_netdev "net_white" "WAN Link" "white:net" "wan" "link"
 	ucidef_set_led_netdev "net_orange" "WAN Activity" "orange:net" "wan" "tx rx"
 	;;
+dlink,dir-853-a1|\
 dlink,dir-853-a3)
 	ucidef_set_led_netdev "wan" "wan" "blue:net" "wan"
 	;;
@@ -88,6 +93,9 @@ dlink,dir-882-r1)
 	;;
 gnubee,gb-pc2)
 	ucidef_set_led_netdev "ethyellow" "ethyellow" "orange:ethyellow" "ethyellow" "link tx rx"
+	;;
+huasifei,ws1208v2)
+	ucidef_set_led_netdev "wwan0" "wwan0" "green:cellular" "wwan0" "link tx rx"
 	;;
 keenetic,kn-3010)
 	ucidef_set_led_netdev "internet" "internet" "green:internet" "wan"
