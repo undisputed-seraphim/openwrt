@@ -3,13 +3,16 @@ include $(INCLUDE_DIR)/version.mk
 
 PKG_NAME:=ipq-wifi
 PKG_RELEASE:=1
+
+PKG_SOURCE_PROTO:=git
+PKG_SOURCE_URL=$(PROJECT_GIT)/project/firmware/qca-wireless.git
+PKG_SOURCE_DATE:=2023-03-19
+PKG_SOURCE_VERSION:=31ff96d9f99f993cb43d79f0c411fe6bf55633bb
+PKG_MIRROR_HASH:=8005a884059925a627024b9022ed06a36ebf4ed7a20e8aab191585afbdd6895f
+
 PKG_FLAGS:=nonshared
 
 include $(INCLUDE_DIR)/package.mk
-
-define Build/Prepare
-	mkdir -p $(PKG_BUILD_DIR)
-endef
 
 define Build/Compile
 endef
@@ -25,6 +28,8 @@ endef
 # <https://wireless.wiki.kernel.org/en/users/drivers/ath10k/boardfiles>
 
 ALLWIFIBOARDS:= \
+	8dev_habanero \
+	8dev_jalapeno \
 	aruba_ap-365 \
 	buffalo_wxr-5950ax12 \
 	devolo_magic-2-wifi-next \
@@ -39,6 +44,7 @@ ALLWIFIBOARDS:= \
 	glinet_gl-s1300 \
 	linksys_ea8300 \
 	linksys_whw03v2 \
+	nokia_ac400i \
 	p2w_r619ac \
 	pakedge_wr-1 \
 	qnap_301w \
@@ -114,7 +120,7 @@ Do not install it for any other device!
   endef
 
   define Package/ipq-wifi-$(1)/install-overlay
-    $$$$(foreach IPQ_WIFI_BOARD_FILE,$$$$(wildcard board-$(1).*),\
+    $$$$(foreach IPQ_WIFI_BOARD_FILE,$$$$(wildcard $(PKG_BUILD_DIR)/board-$(1).*),\
       $$$$(call ipq-wifi-install-one,$$$$(IPQ_WIFI_BOARD_FILE),$$(1)))
   endef
 
@@ -125,6 +131,8 @@ endef
 # Place files in this directory as board-<devicename>.<qca4019|qca9888|qca9889|qca9984|qca99x0|ipq8074>
 # Add $(eval $(call generate-ipq-wifi-package,<devicename>,<display name>))
 
+$(eval $(call generate-ipq-wifi-package,8dev_habanero,8devices Habanero))
+$(eval $(call generate-ipq-wifi-package,8dev_jalapeno,8devices Jalapeno))
 $(eval $(call generate-ipq-wifi-package,aruba_ap-365,Aruba AP-365))
 $(eval $(call generate-ipq-wifi-package,buffalo_wxr-5950ax12,Buffalo WXR-5950AX12))
 $(eval $(call generate-ipq-wifi-package,devolo_magic-2-wifi-next,devolo Magic 2 WiFi next))
@@ -139,6 +147,7 @@ $(eval $(call generate-ipq-wifi-package,glinet_gl-ap1300,GL.iNet GL-AP1300))
 $(eval $(call generate-ipq-wifi-package,glinet_gl-s1300,GL.iNet GL-S1300))
 $(eval $(call generate-ipq-wifi-package,linksys_ea8300,Linksys EA8300))
 $(eval $(call generate-ipq-wifi-package,linksys_whw03v2,Linksys WHW03 V2))
+$(eval $(call generate-ipq-wifi-package,nokia_ac400i,Nokia AC400i))
 $(eval $(call generate-ipq-wifi-package,p2w_r619ac,P&W R619AC))
 $(eval $(call generate-ipq-wifi-package,pakedge_wr-1,Pakedge WR-1))
 $(eval $(call generate-ipq-wifi-package,qnap_301w,QNAP 301w))
