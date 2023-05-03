@@ -296,8 +296,7 @@ define Device/avm_fritzrepeater-3000
 	SOC := qcom-ipq4019
 	DEVICE_PACKAGES := ath10k-firmware-qca9984-ct fritz-caldata fritz-tffs-nand
 endef
-# Missing DSA Setup
-#TARGET_DEVICES += avm_fritzrepeater-3000
+TARGET_DEVICES += avm_fritzrepeater-3000
 
 define Device/buffalo_wtr-m2133hp
 	$(call Device/FitImage)
@@ -591,8 +590,7 @@ define Device/glinet_gl-ap1300
 	KERNEL_INSTALL := 1
 	DEVICE_PACKAGES := ipq-wifi-glinet_gl-ap1300 kmod-usb-net-qmi-wwan kmod-usb-serial-option uqmi
 endef
-# Missing DSA Setup
-#TARGET_DEVICES += glinet_gl-ap1300
+TARGET_DEVICES += glinet_gl-ap1300
 
 define Device/glinet_gl-b1300
 	$(call Device/FitzImage)
