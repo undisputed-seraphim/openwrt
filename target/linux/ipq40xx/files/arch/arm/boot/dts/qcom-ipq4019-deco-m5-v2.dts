@@ -12,6 +12,10 @@
 	model = "TP-Link Deco M5";
 	compatible = "tplink,deco-m5", "qcom,ipq4019";
 
+	chosen {
+		bootargs-append = " root=/dev/mtdblock16";
+	};
+
 	aliases {
 		led-boot = &led_blue;
 		led-failsafe = &led_red;
