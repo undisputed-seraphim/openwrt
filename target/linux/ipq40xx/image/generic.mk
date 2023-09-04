@@ -1113,7 +1113,7 @@ define Device/tplink_deco-m5
         DEVICE_PACKAGES := ipq-wifi-tplink_deco-m5
         TPLINK_BOARD_ID := DECO-M5
         IMAGE_SIZE := 16640k
-        IMAGES += factory.bin
+        IMAGES += factory.bin sysupgrade.bin
         IMAGE/factory.bin := append-rootfs | tplink-safeloader factory
         IMAGE/sysupgrade.bin := append-kernel | append-rootfs | pad-rootfs | append-metadata
 endef

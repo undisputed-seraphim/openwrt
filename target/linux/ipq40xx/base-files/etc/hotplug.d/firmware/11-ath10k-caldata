@@ -137,7 +137,7 @@ case "$FIRMWARE" in
 		;;
 	tplink,deco-m5)
 		caldata_extract "0:ART" 0x1000 0x2f20
-		ath10k_patch_mac $(macaddr_add $(mtd_get_mac_binary "OPAQUE" 0x8) 2)
+		ath10k_patch_mac $(macaddr_add $(get_mac_binary "/dev/mtd10" 0x8) 2)
 		;;
 	sony,ncp-hg100-cellular)
 		caldata_extract_mmc "0:ART" 0x1000 0x2f20
@@ -240,7 +240,7 @@ case "$FIRMWARE" in
 		;;
 	tplink,deco-m5)
 		caldata_extract "0:ART" 0x1000 0x2f20
-		ath10k_patch_mac $(macaddr_add $(mtd_get_mac_binary "OPAQUE" 0x8) 3)
+		ath10k_patch_mac $(macaddr_add $(get_mac_binary "/dev/mtd10" 0x8) 3)
 		;;
 	zyxel,nbg6617 |\
 	zyxel,wre6606)
