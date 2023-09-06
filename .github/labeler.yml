@@ -5,8 +5,8 @@
   - "target/linux/apm821xx/**"
 "target/archs38":
   - "target/linux/archs38/**"
-"target/armvirt":
-  - "target/linux/armvirt/**"
+"target/armsr":
+  - "target/linux/armsr/**"
 "target/at91":
   - "target/linux/at91/**"
   - "package/boot/at91bootstrap/**"
@@ -94,6 +94,10 @@
   - "target/linux/rockchip/**"
   - "package/boot/arm-trusted-firmware-rockchip/**"
   - "package/boot/uboot-rockchip/**"
+"target/sifiveu":
+  - "target/linux/sifiveu/**"
+  - "package/boot/uboot-sifiveu/**"
+  - "package/boot/opensbi/**"
 "target/sunxi":
   - "target/linux/sunxi/**"
   - "package/boot/arm-trusted-firmware-sunxi/**"

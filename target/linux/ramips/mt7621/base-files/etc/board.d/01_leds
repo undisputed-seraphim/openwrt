@@ -35,9 +35,18 @@ asus,rt-n56u-b1)
 beeline,smartbox-flash|\
 beeline,smartbox-giga|\
 beeline,smartbox-turbo|\
+beeline,smartbox-turbo-plus|\
 etisalat,s3|\
 rostelecom,rt-sf-1)
 	ucidef_set_led_netdev "wan" "wan" "blue:wan" "wan"
+	;;
+beeline,smartbox-pro|\
+wifire,s1500-nbn)
+	ucidef_set_led_netdev "lan1" "lan1" "green:lan1" "lan1" "link tx rx"
+	ucidef_set_led_netdev "lan2" "lan2" "green:lan2" "lan2" "link tx rx"
+	ucidef_set_led_netdev "lan3" "lan3" "green:lan3" "lan3" "link tx rx"
+	ucidef_set_led_netdev "lan4" "lan4" "green:lan4" "lan4" "link tx rx"
+	ucidef_set_led_netdev "wan"  "wan"  "green:wan"  "wan"  "link tx rx"
 	;;
 belkin,rt1800)
 	ucidef_set_led_netdev "wan" "wan" "white:wan" "wan"
@@ -162,6 +171,9 @@ netgear,wax202)
 oraybox,x3a)
 	ucidef_set_led_netdev "wan" "wan link" "red:status" "wan"
 	ucidef_set_led_netdev "lan" "lan link" "green:status" "br-lan"
+	;;
+snr,snr-cpe-me1)
+	ucidef_set_led_usbport "usb" "USB" "green:usb" "usb1-port1" "usb2-port1"
 	;;
 tplink,archer-a6-v3|\
 tplink,archer-ax23-v1|\
