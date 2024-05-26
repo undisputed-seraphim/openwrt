@@ -20,6 +20,7 @@ alfa-network,tube-e4g|\
 engenius,epg600|\
 engenius,esr600h|\
 linksys,re7000|\
+meig,slt866|\
 sitecom,wlr-4100-v1-002|\
 zyxel,keenetic-lite-iii-a)
 	ubootenv_add_uci_config "/dev/mtd1" "0x0" "0x1000" "0x1000"
@@ -42,6 +43,7 @@ beeline,smartbox-giga|\
 beeline,smartbox-turbo|\
 beeline,smartbox-turbo-plus|\
 etisalat,s3|\
+rostelecom,rt-fe-1a|\
 rostelecom,rt-sf-1)
 	ubootenv_add_uci_config "/dev/mtd0" "0x80000" "0x1000" "0x20000"
 	;;

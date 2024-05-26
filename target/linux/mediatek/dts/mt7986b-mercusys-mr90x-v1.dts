@@ -8,7 +8,7 @@
 
 / {
 	compatible = "mercusys,mr90x-v1", "mediatek,mt7986b";
-	model = "Mercusys MR90X v1";
+	model = "MERCUSYS MR90X v1";
 
 	aliases {
 		serial0 = &uart0;
@@ -120,7 +120,7 @@
 		reg = <6>;
 	};
 
-	switch: switch@0 {
+	switch: switch@1f {
 		compatible = "mediatek,mt7531";
 		reg = <31>;
 		reset-gpios = <&pio 5 GPIO_ACTIVE_HIGH>;
@@ -212,8 +212,8 @@
 		reg = <0>;
 
 		spi-max-frequency = <20000000>;
-		spi-tx-buswidth = <4>;
-		spi-rx-buswidth = <4>;
+		spi-tx-bus-width = <4>;
+		spi-rx-bus-width = <4>;
 
 		partitions: partitions {
 			compatible = "fixed-partitions";

@@ -355,7 +355,7 @@ endef
 #TARGET_DEVICES += compex_wpj419
 
 define Device/compex_wpj428
-	$(call Device/FitImage)
+	$(call Device/FitzImage)
 	DEVICE_VENDOR := Compex
 	DEVICE_MODEL := WPJ428
 	SOC := qcom-ipq4028
@@ -456,8 +456,7 @@ define Device/engenius_eap1300
 	IMAGE_SIZE := 25344k
 	IMAGE/sysupgrade.bin := append-kernel | append-rootfs | pad-rootfs | append-metadata
 endef
-# Missing DSA Setup
-#TARGET_DEVICES += engenius_eap1300
+TARGET_DEVICES += engenius_eap1300
 
 define Device/engenius_eap2200
 	$(call Device/FitImage)
@@ -1180,7 +1179,6 @@ TARGET_DEVICES += zte_mf286d
 
 define Device/zte_mf287_common
 	$(call Device/zte_mf28x_common)
-	DEVICE_PACKAGES += ipq-wifi-zte_mf287plus
 	SOC := qcom-ipq4018
 #	The recovery image is used to return back to stock (an initramfs-based image
 #	that can be flashed to the device via sysupgrade
@@ -1193,15 +1191,23 @@ endef
 
 define Device/zte_mf287plus
 	$(call Device/zte_mf287_common)
+	DEVICE_PACKAGES += ipq-wifi-zte_mf287plus
 	DEVICE_DTS_CONFIG := config@ap.dk01.1-c2
 	DEVICE_MODEL := MF287Plus
-	DEVICE_ALT0_VENDOR := ZTE
-	DEVICE_ALT0_MODEL := MF287
 endef
 TARGET_DEVICES += zte_mf287plus
 
+define Device/zte_mf287
+	$(call Device/zte_mf287_common)
+	DEVICE_PACKAGES += ipq-wifi-zte_mf287
+	DEVICE_DTS_CONFIG := config@ap.dk01.1-c2
+	DEVICE_MODEL := MF287
+endef
+TARGET_DEVICES += zte_mf287
+
 define Device/zte_mf287pro
 	$(call Device/zte_mf287_common)
+	DEVICE_PACKAGES += ipq-wifi-zte_mf287plus
 	DEVICE_DTS_CONFIG := config@ap.dk04.1-c1
 	DEVICE_MODEL := MF287Pro
 endef
