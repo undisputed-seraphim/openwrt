@@ -253,7 +253,7 @@
 		};
 	};
 
-	cx2902x_reset: cx2902x_pinmux {
+	cx2092x_reset: cx2092x_pinmux {
 		mux_1 {
 			pins = "gpio64";
 			function = "gpio";
@@ -320,7 +320,6 @@
 	 * - CY8C4014LQI@14	: Touch-Sensor for buttons on top
 	 * - MINI54FDE@15	: MCU for Fan/RGB LED/Thermal control
 	 * - ALC5629@18		: I2S/PCM Audio DAC
-	 * - CX20924@41		: Voice Input Processor
 	 */
 	pinctrl-0 = <&i2c_1_pins>;
 	pinctrl-names = "default";
@@ -513,6 +512,15 @@
 			reg = <0x8>;
 			color = <LED_COLOR_ID_RED>;
 			function = LED_FUNCTION_POWER;
+		};
+
+		conexant@41 {
+			compatible = "conexant,cx20924";
+			reg = <0x41>;
+			conexant,name = "cx2092x";
+			pinctrl-0 = <&cx2092x_reset>;
+			pinctrl-names = "default";
+			reset-gpios = <&tlmm 65 GPIO_ACTIVE_HIGH>;
 		};
 	};
 };
