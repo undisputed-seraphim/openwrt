@@ -213,6 +213,18 @@ endef
 $(eval $(call KernelPackage,sound-soc-ac97))
 
 
+define KernelPackage/sound-soc-cx2092x
+  TITLE:=Conexant CX2092X support
+  KCONFIG:=CONFIG_SND_SOC_CX2092X
+  FILES:=$(LINUX_DIR)/sound/soc/codecs/snd-soc-cx2092x.ko
+  AUTOLOAD:=$(call AutoLoad,57,snd-soc-cx2092x)
+  DEPENDS:=+kmod-sound-soc-core
+  $(call AddDepends/sound)
+endef
+
+$(eval $(call KernelPackage,sound-soc-cx2092x))
+
+
 define KernelPackage/sound-soc-imx
   TITLE:=IMX SoC support
   KCONFIG:=\
