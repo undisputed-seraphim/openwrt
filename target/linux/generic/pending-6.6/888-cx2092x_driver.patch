@@ -1,0 +1,57 @@
+--- a/sound/soc/codecs/Kconfig
++++ b/sound/soc/codecs/Kconfig
+@@ -99,6 +99,8 @@ config SND_SOC_ALL_CODECS
+ 	imply SND_SOC_CS53L30
+ 	imply SND_SOC_CX20442
+ 	imply SND_SOC_CX2072X
++	imply SND_SOC_CX2092X_I2C
++	imply SND_SOC_CX2092X_SPI
+ 	imply SND_SOC_DA7210
+ 	imply SND_SOC_DA7213
+ 	imply SND_SOC_DA7218
+@@ -960,6 +962,23 @@ config SND_SOC_CX2072X
+ 	help
+ 	  Enable support for Conexant CX20721 and CX20723 codec chips.
+ 
++config SND_SOC_CX2092X
++	tristate
++
++config SND_SOC_CX2092X_I2C
++	tristate "Conexant CX2092X CODEC (I2C)"
++	depends on I2C
++	select SND_SOC_CX2092X
++	help
++	  Enable support for Conexant CX2092X codec chips (i2c interface)
++
++config SND_SOC_CX2092X_SPI
++	tristate "Conexant CX2092X CODEC (SPI)"
++	depends on SPI_MASTER
++	select SND_SOC_CX2092X
++	help
++	  Enable support for Conexant CX2092X codec chips (spi interface)
++
+ config SND_SOC_JZ4740_CODEC
+ 	depends on MACH_INGENIC || COMPILE_TEST
+ 	depends on OF
+--- a/sound/soc/codecs/Makefile
++++ b/sound/soc/codecs/Makefile
+@@ -105,6 +105,9 @@ snd-soc-cs47l92-objs := cs47l92.o
+ snd-soc-cs53l30-objs := cs53l30.o
+ snd-soc-cx20442-objs := cx20442.o
+ snd-soc-cx2072x-objs := cx2072x.o
++snd-soc-cx2092x-objs := cx2092x.o
++snd-soc-cx2092x-i2c-objs := cx2092x-i2c.o
++snd-soc-cx2092x-spi-objs := cx2092x-spi.o
+ snd-soc-da7210-objs := da7210.o
+ snd-soc-da7213-objs := da7213.o
+ snd-soc-da7218-objs := da7218.o
+@@ -491,6 +494,9 @@ obj-$(CONFIG_SND_SOC_CS47L92)	+= snd-soc
+ obj-$(CONFIG_SND_SOC_CS53L30)	+= snd-soc-cs53l30.o
+ obj-$(CONFIG_SND_SOC_CX20442)	+= snd-soc-cx20442.o
+ obj-$(CONFIG_SND_SOC_CX2072X)	+= snd-soc-cx2072x.o
++obj-$(CONFIG_SND_SOC_CX2092X)	+= snd-soc-cx2092x.o
++obj-$(CONFIG_SND_SOC_CX2092X_I2C)	+= snd-soc-cx2092x-i2c.o
++obj-$(CONFIG_SND_SOC_CX2092X_SPI)	+= snd-soc-cx2092x-spi.o
+ obj-$(CONFIG_SND_SOC_DA7210)	+= snd-soc-da7210.o
+ obj-$(CONFIG_SND_SOC_DA7213)	+= snd-soc-da7213.o
+ obj-$(CONFIG_SND_SOC_DA7218)	+= snd-soc-da7218.o
