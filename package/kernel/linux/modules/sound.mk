@@ -213,6 +213,33 @@ endef
 $(eval $(call KernelPackage,sound-soc-ac97))
 
 
+define KernelPackage/sound-soc-cx2092x-i2c
+  TITLE:=Conexant CX2092X support (i2c)
+  KCONFIG:=CONFIG_SND_SOC_CX2092X_I2C
+  FILES:= \
+	$(LINUX_DIR)/sound/soc/codecs/snd-soc-cx2092x-i2c.ko \
+	$(LINUX_DIR)/sound/soc/codecs/snd-soc-cx2092x.ko
+  AUTOLOAD:=$(call AutoLoad,56,snd-soc-cx2092x-i2c)
+  DEPENDS:=+kmod-sound-soc-core +kmod-i2c-core +kmod-regmap-i2c
+  $(call AddDepends/sound)
+endef
+
+$(eval $(call KernelPackage,sound-soc-cx2092x-i2c))
+
+
+define KernelPackage/sound-soc-cx2092x-spi
+  TITLE:=Conexant CX2092X support (spi)
+  KCONFIG:=CONFIG_SND_SOC_CX2092X_SPI
+  FILES:= \
+	$(LINUX_DIR)/sound/soc/codecs/snd-soc-cx2092x-spi.ko \
+	$(LINUX_DIR)/sound/soc/codecs/snd-soc-cx2092x.ko
+  AUTOLOAD:=$(call AutoLoad,56,snd-soc-cx2092x-spi)
+  DEPENDS:=+kmod-sound-soc-core +kmod-regmap-spi
+  $(call AddDepends/sound)
+endef
+
+$(eval $(call KernelPackage,sound-soc-cx2092x-spi))
+
 define KernelPackage/sound-soc-imx
   TITLE:=IMX SoC support
   KCONFIG:=\
