@@ -1112,7 +1112,7 @@ define Device/sony_ncp-hg100-cellular
 	SOC := qcom-ipq4019
 	KERNEL_SIZE := 8192k
 	IMAGE_SIZE := 128m
-	DEVICE_PACKAGES := e2fsprogs kmod-fs-ext4 uqmi
+	DEVICE_PACKAGES := e2fsprogs kmod-fs-ext4 kmod-sound-soc-cx2092x-i2c uqmi
 endef
 TARGET_DEVICES += sony_ncp-hg100-cellular
 
