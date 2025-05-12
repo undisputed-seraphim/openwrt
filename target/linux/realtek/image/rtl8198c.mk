@@ -12,4 +12,4 @@ define Device/f-secure_sense
   KERNEL_INITRAMFS := kernel-bin | append-dtb | lzma | loader-kernel
 endef
 
-# TARGET_DEVICES += f-secure_sense
+TARGET_DEVICES += f-secure_sense
