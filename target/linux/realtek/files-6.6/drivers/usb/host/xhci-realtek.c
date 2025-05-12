@@ -14,6 +14,7 @@
 #include <linux/kernel.h>
 #include <linux/list.h>
 #include <linux/module.h>
+#include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/types.h>
 #include <linux/timer.h>
@@ -105,6 +106,7 @@ void rtxh_u3_set_phy(unsigned int addr,unsigned int value)
 		pr_err("usb phy set error (addr=%x, value=%x read=%x)\n",addr,value,readback);
 }
 
+/*
 static void rtxh_u3_get_phy(unsigned int addr,unsigned int *value)
 {
 	unsigned int readback;
@@ -121,6 +123,7 @@ static void rtxh_u3_get_phy(unsigned int addr,unsigned int *value)
 
 	*value = ((readback2 >> 16) & 0xffff);
 }
+*/
 
 void rtxh_u3_reset_phy(void)
 {
@@ -403,7 +406,7 @@ err_usb3:
 	usb_put_hcd(xhci->shared_hcd);
 err_host:
 //	xhci_histb_host_disable(xhdev);
-err_hcd:
+//err_hcd:
 	usb_put_hcd(hcd);
 err_out:
 	return ret;
