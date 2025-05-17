@@ -319,7 +319,6 @@
 	 * There is no driver for the following devices:
 	 * - CY8C4014LQI@14	: Touch-Sensor for buttons on top
 	 * - MINI54FDE@15	: MCU for Fan/RGB LED/Thermal control
-	 * - ALC5629@18		: I2S/PCM Audio DAC
 	 */
 	pinctrl-0 = <&i2c_1_pins>;
 	pinctrl-names = "default";
@@ -512,6 +511,15 @@
 			reg = <0x8>;
 			color = <LED_COLOR_ID_RED>;
 			function = LED_FUNCTION_POWER;
+		};
+
+		rt5628@18 {
+			compatible = "realtek,rt5628";
+			reg = <0x18>;
+			pinctrl-0 = <&alc1304_pins>;
+			pinctrl-names = "default";
+			shutdown-gpio = <&tlmm 44 GPIO_ACTIVE_LOW>;
+			mute-gpio = <&tlmm 45 GPIO_ACTIVE_HIGH>;
 		};
 
 		conexant@41 {
