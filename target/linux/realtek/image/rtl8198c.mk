@@ -13,3 +13,12 @@ define Device/f-secure_sense
 endef
 
 TARGET_DEVICES += f-secure_sense
+
+define Device/askey-ap5100w
+  DEVICE_VENDOR := Askey
+  DEVICE_MODEL := AP5100W
+  IMAGE_SIZE := 32768k
+endef
+
+TARGET_DEVICES += askey-ap5100w
+
