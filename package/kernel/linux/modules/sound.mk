@@ -281,6 +281,18 @@ endef
 $(eval $(call KernelPackage,sound-soc-mt7986))
 
 
+define KernelPackage/sound-soc-rt5628
+  TITLE:=Realtek ALC5628/RT5628 Stereo DAC support
+  KCONFIG:=CONFIG_SND_SOC_RT5628
+  FILES:=$(LINUX_DIR)/sound/soc/codecs/snd-soc-rt5628.ko
+  AUTOLOAD:=$(call AutoLoad,56,snd-soc-rt5628)
+  DEPENDS:=+kmod-sound-soc-core +kmod-regmap-i2c
+  $(call AddDepends/sound)
+endef
+
+$(eval $(call KernelPackage,sound-soc-rt5628))
+
+
 define KernelPackage/sound-soc-mt7986-wm8960
   TITLE:=MediaTek MT7986 Audio support
   KCONFIG:=CONFIG_SND_SOC_MT7986_WM8960
