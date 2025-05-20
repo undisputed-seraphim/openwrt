@@ -1,0 +1,14 @@
+// SPDX-License-Identifier: GPL-2.0-or-later OR MIT
+
+#include "rtl8198c.dtsi"
+
+/ {
+	compatible = "askey,ap5100w", "realtek,rtl8198c-soc";
+	model = "Askey AP5100W";
+
+	memory@0 {
+		device_type = "memory";
+		reg = <0x0 0x8000000>;
+	};
+
+};
