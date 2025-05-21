@@ -33,20 +33,20 @@ Submitted-by: Birger Koblitz <git@birger-koblitz.de>
  	select SYS_HAS_CPU_MIPS32_R1
  	select SYS_HAS_CPU_MIPS32_R2
  	select SYS_SUPPORTS_BIG_ENDIAN
++	select SYS_SUPPORTS_HIGHMEM
  	select SYS_SUPPORTS_32BIT_KERNEL
  	select SYS_SUPPORTS_MIPS16
 -	select SYS_SUPPORTS_MULTITHREADING
 -	select SYS_SUPPORTS_VPE_LOADER
- 	select BOOT_RAW
- 	select PINCTRL
- 	select USE_OF
-+	select NO_EXCEPT_FILL
-+	select SYS_SUPPORTS_HIGHMEM
 +	select SYS_HAS_EARLY_PRINTK
 +	select SYS_HAS_EARLY_PRINTK_8250
 +	select USE_GENERIC_EARLY_PRINTK_8250
+ 	select BOOT_RAW
+ 	select PINCTRL
 +	select ARCH_HAS_RESET_CONTROLLER
 +	select RESET_CONTROLLER
+ 	select USE_OF
++	select NO_EXCEPT_FILL
 +
 +config RTL838X
 +	bool "Realtek RTL838X based platforms"
