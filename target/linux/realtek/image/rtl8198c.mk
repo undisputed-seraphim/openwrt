@@ -16,7 +16,7 @@ endef
 
 
 define Device/askey_ap5100w
-  KERNEL_LOADADDR := 0x80000000
+  LOADADDR := 0x80000000
   LOADER_PLATFORM := rtl8198c
   LOADER_TYPE := bin
   LZMA_TEXT_START := 0x84000000
