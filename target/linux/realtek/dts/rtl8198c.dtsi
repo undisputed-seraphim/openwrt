@@ -37,6 +37,11 @@
 		bootargs = "console=ttyS0,38400";
 	};
 
+	cmp@1fbf8000 {
+		compatible = "mti,mips-cmp";
+		reg = <0x1fbf8000 0x8000>;
+	};
+
 	cpc: cpc@1bde0000 {
 		compatible = "mti,mips-cpc";
 		reg = <0x1bde0000 0x8000>;
@@ -93,6 +98,44 @@
 			no-loopback-test;
 		};
 
+	};
+
+	pci0: pci@18b00000 {
+		compatible = "realtek,rtl8198c-pci";
+		#address-cells = <3>;
+		#size-cells = <2>;
+		bus-range = <0x00 0xff>;
+		clocks = <&cpuclock>;
+		device_type = "pci";
+		interrupt-parent = <&gic>;
+		interrupts = <GIC_SHARED 31 IRQ_TYPE_LEVEL_HIGH>;
+		ranges = <0x02000000 0 0 0x19000000 0 0x01000000>, /* pci memory */
+				 <0x01000000 0 0 0x18C00000 0 0x00200000>; /* io space */
+		reg = <0x18B00000 0x1000
+			   0x18B01000 0x1000
+			   0x18B10000 0x1000
+			   0x18B11000 0x1000>;
+		reg-names = "rc_cfg", "rc_ext", "dev_cfg0", "dev_cfg1";
+		slot-num = <0>;
+	};
+
+	pci1: pci@18b20000 {
+		compatible = "realtek,rtl8198c-pci";
+		#address-cells = <3>;
+		#size-cells = <2>;
+		bus-range = <0x00 0xff>;
+		clocks = <&cpuclock>;
+		device_type = "pci";
+		interrupt-parent = <&gic>;
+		interrupts = <GIC_SHARED 32 IRQ_TYPE_LEVEL_HIGH>;
+		ranges = <0x02000000 0 0 0x1A000000 0 0x01000000>, /* pci memory */
+				 <0x01000000 0 0 0x18E00000 0 0x00200000>; /* io space */
+		reg = <0x18B20000 0x1000
+			   0x18B21000 0x1000
+			   0x18B30000 0x1000
+			   0x18B31000 0x1000>;
+		reg-names = "rc_cfg", "rc_ext", "dev_cfg0", "dev_cfg1";
+		slot-num = <1>;
 	};
 
 	xhci: xhci@18040000 {
