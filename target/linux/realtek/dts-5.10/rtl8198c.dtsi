@@ -95,6 +95,28 @@
 
 	};
 
+	pci0: pci@0 {
+		#address-cells = <3>;
+		#size-cells = <2>;
+		compatible = "realtek,rtl8198c-pci";
+		device_type = "pci";
+		ranges = <0x02000000 0 0x00000000 0x19000000 0 0x1000000>, /* pci memory */
+				 <0x01000000 0 0x00000000 0x18C00000 0 0x200000>; /* io space */
+		interrupt-parent = <&gic>;
+		interrupts = <GIC_SHARED 31 IRQ_TYPE_LEVEL_HIGH>;
+	};
+
+	pci1: pci@1 {
+		#address-cells = <3>;
+		#size-cells = <2>;
+		compatible = "realtek,rtl8198c-pci";
+		device_type = "pci";
+		ranges = <0x02000000 0 0x00000000 0x1A000000 0 0x1000000>, /* pci memory */
+				 <0x01000000 0 0x00000000 0x18E00000 0 0x200000>; /* io space */
+		interrupt-parent = <&gic>;
+		interrupts = <GIC_SHARED 32 IRQ_TYPE_LEVEL_HIGH>;
+	};
+
 	xhci: xhci@18040000 {
 		compatible = "realtek,realtek-xhci";
 		reg = <0x18040000 0x100000>;
