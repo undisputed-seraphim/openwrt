@@ -1,0 +1,20 @@
+--- a/arch/mips/pci/Makefile
++++ b/arch/mips/pci/Makefile
+@@ -43,6 +43,7 @@ obj-$(CONFIG_PCI_LANTIQ)	+= pci-lantiq.o
+ obj-$(CONFIG_SOC_MT7620)	+= pci-mt7620.o
+ obj-$(CONFIG_SOC_RT288X)	+= pci-rt2880.o
+ obj-$(CONFIG_SOC_RT3883)	+= pci-rt3883.o
++obj-$(CONFIG_RTL8198C)		+= pci-rtl8198c.o
+ obj-$(CONFIG_TANBAC_TB0219)	+= fixup-tb0219.o
+ obj-$(CONFIG_TANBAC_TB0226)	+= fixup-tb0226.o
+ obj-$(CONFIG_TANBAC_TB0287)	+= fixup-tb0287.o
+--- a/arch/mips/Kconfig
++++ b/arch/mips/Kconfig
+@@ -1091,6 +1091,7 @@ config RTL931X
+ config RTL8198C
+ 	bool "Realtek RTL8198C based platforms"
+ 	depends on RTL83XX
++	select HAVE_PCI
+ 	select CSRC_R4K
+ 	select CEVT_R4K
+ 	select MIPS_CPU_SCACHE
