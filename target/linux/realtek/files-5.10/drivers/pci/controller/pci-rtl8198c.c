@@ -1,4 +1,9 @@
-// SPDX-License-Identifier: GPL-2.0+
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * PCIe host controller driver for Realtek RTL8198C
+ *
+ * Copyright (C) 2025 Tan Li Boon <undisputed.seraphim@gmail.com>
+ */
 
 #include <linux/device.h>
 #include <linux/clk.h>
@@ -90,12 +95,6 @@ static inline void rtl8198c_pcie_phy_reset(uintptr_t phy)
 	iowrite32(0x81, (void*)phy); //bit7: PHY reset=1	bit0: Enable LTSSM=1
 }
 
-static inline void rtl8198c_set_phy_mdio_write(unsigned int regaddr, unsigned short val, uintptr_t mdioaddr)
-{
-	volatile int i;
-	iowrite32(((regaddr & 0x1f) << 8) | ((val & 0xffff) << 16) | (1 << 0), (void*)mdioaddr);
-}
-
 static inline void rtl8198c_pcie0_device_perst(void)
 {
 	iowrite32(ioread32(PCIE0_CLOCK_MANAGE) & ~(1 << 26), PCIE0_CLOCK_MANAGE);
@@ -114,7 +113,13 @@ static inline void rtl8198c_pcie1_device_perst(void)
 	iowrite32(ioread32(PEFGHDAT_REG) |  0x20000, PEFGHDAT_REG);
 }
 
-static inline void rtl8198c_pcie_reset(uintptr_t h_pwrcr, uintptr_t mdio, u32 magic1, u32 magic2)
+static inline void rtl8198c_check_link(void)
+{
+#define PCIE0_DEBUG_ADDR 0xb8b00728
+#define PCIE1_DEBUG_ADDR 0xb8b20728
+}
+
+static inline void rtl8198c_pcie_reset(uintptr_t h_pwrcr, uintptr_t mdio, u32 magic1, u32 magic2, void(*perst)(void))
 {
 	int result = 0;
 	int phy40m = 0;
@@ -154,16 +159,28 @@ static inline void rtl8198c_pcie_reset(uintptr_t h_pwrcr, uintptr_t mdio, u32 ma
 		rtl8198c_host_pcie_set_phy_mdio_write(mdio, 0x19, 0xfc70);
 	}
 
+	perst();
+
 	rtl8198c_pcie_phy_reset(h_pwrcr);
 	mdelay(1000);
 }
 static inline void rtl8198c_pcie0_reset(void)
 {
-	rtl8198c_pcie_reset(BSP_PCIE0_H_PWRCR, PCIE0_MDIO, 14, 0x50);
+	rtl8198c_pcie_reset(
+		BSP_PCIE0_H_PWRCR,
+		PCIE0_MDIO,
+		14,
+		0x50,
+		rtl8198c_pcie0_device_perst);
 }
 static inline void rtl8198c_pcie1_reset(void)
 {
-	rtl8198c_pcie_reset(BSP_PCIE1_H_PWRCR, PCIE1_MDIO, 16, 0x54);
+	rtl8198c_pcie_reset(
+		BSP_PCIE1_H_PWRCR,
+		PCIE1_MDIO,
+		16,
+		0x54,
+		rtl8198c_pcie1_device_perst);
 }
 
 //========================================================================================
