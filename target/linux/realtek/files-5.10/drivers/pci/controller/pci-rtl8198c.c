@@ -86,7 +86,7 @@ static inline void rtl8198c_host_pcie_set_phy_mdio_write(uintptr_t addr, u32 reg
 
 	iowrite32(((regaddr & 0x1f) << PCIE_MDIO_REG_OFFSET) | ((val & 0xffff) << PCIE_MDIO_DATA_OFFSET) | (1 << PCIE_MDIO_RDWR_OFFSET), (void*)addr);
 
-	for (i = 0; i < 5555; i++) ;
+	mdelay(1000);
 }
 
 static inline void rtl8198c_pcie_phy_reset(uintptr_t phy)
@@ -219,27 +219,29 @@ static inline void pci_write_size(int size, uintptr_t addr, u32 val)
 	}
 }
 
+//========================================================================================
 
 #define MAX_NUM_DEV			4
 
-static int pci0_config_read(struct pci_bus *bus, unsigned int devfn, int where, int size, u32 *val)
+static int pci_config_read(struct pci_bus *bus, unsigned int devfn, int where, int size, u32 *val,
+							uintptr_t h_cfg, uintptr_t h_ipcfg, uintptr_t d_cfg0, uintptr_t d_cfg1, unsigned char *bus_nr)
 {
 	unsigned int slot = PCI_SLOT(devfn);
 	u8 func = PCI_FUNC(devfn);
 	uintptr_t addr = 0;
 	unsigned int data = 0;
 
-	if (pci0_bus_nr == 0xff)
-		pci0_bus_nr = bus->number;
+	if (*bus_nr == 0xff)
+		*bus_nr = bus->number;
 
-	if (bus->number == pci0_bus_nr)
+	if (bus->number == *bus_nr)
 	{
 		if (slot != 0)
 		{
 			return PCIBIOS_DEVICE_NOT_FOUND;
 		}
 		/* PCIE host controller */
-		addr = (BSP_PCIE0_H_CFG + where) & (~0x3);
+		addr = (h_cfg + where) & (~0x3);
 		data = ioread32((void*)addr);
 
 		if (size == 1)
@@ -249,15 +251,15 @@ static int pci0_config_read(struct pci_bus *bus, unsigned int devfn, int where, 
 		else
 			*val = data;
 	}
-	else if (bus->number == pci0_bus_nr + 1)
+	else if (bus->number == *bus_nr + 1)
 	{
 		if (slot != 0)
 		{
 			return PCIBIOS_DEVICE_NOT_FOUND;
 		}
 		/* PCIE devices directly connected */
-		addr = BSP_PCIE0_D_CFG0 + (func << 12);
-		*val = pci_read_size(size, addr + where);
+		addr = d_cfg0 + (func << 12) + where;
+		*val = pci_read_size(size, addr);
 	}
 	else
 	{
@@ -266,31 +268,32 @@ static int pci0_config_read(struct pci_bus *bus, unsigned int devfn, int where, 
 			return PCIBIOS_DEVICE_NOT_FOUND;
 		}
 		/* Devices connected through bridge */
-		iowrite32(((bus->number) << 8) | (slot << 3) | func, (void*)BSP_PCIE0_H_IPCFG);
-		addr = BSP_PCIE0_D_CFG1 + where;
-		*val = pci_read_size(size, addr + where);
+		iowrite32((bus->number << 8) | (slot << 3) | func, (void*)h_ipcfg);
+		addr = d_cfg1 + where;
+		*val = pci_read_size(size, addr);
 	}
 	return PCIBIOS_SUCCESSFUL;
 }
 
-static int pci0_config_write(struct pci_bus *bus, unsigned int devfn, int where, int size, unsigned int val)
+static int pci_config_write(struct pci_bus *bus, unsigned int devfn, int where, int size, unsigned int val,
+							uintptr_t h_cfg, uintptr_t h_ipcfg, uintptr_t d_cfg0, uintptr_t d_cfg1, unsigned char *bus_nr)
 {
 	unsigned int slot = PCI_SLOT(devfn);
 	u8 func = PCI_FUNC(devfn);
 	uintptr_t addr = 0;
 	unsigned int data = 0;
 
-	if (pci0_bus_nr == 0xff)
-		pci0_bus_nr = bus->number;
+	if (*bus_nr == 0xff)
+		*bus_nr = bus->number;
 
-	if (bus->number == pci0_bus_nr)
+	if (bus->number == *bus_nr)
 	{
 		if (slot != 0)
 		{
 			return PCIBIOS_DEVICE_NOT_FOUND;
 		}
 		/* PCIE host controller */
-		addr = (BSP_PCIE0_H_CFG + where) & (~0x3);
+		addr = (h_cfg + where) & (~0x3);
 		data = ioread32((void*)addr);
 
 		if (size == 1)
@@ -302,14 +305,14 @@ static int pci0_config_write(struct pci_bus *bus, unsigned int devfn, int where,
 
 		iowrite32(data, (void*)addr);
 	}
-	else if (bus->number == pci0_bus_nr + 1)
+	else if (bus->number == *bus_nr + 1)
 	{
 		if (slot != 0)
 		{
 			return PCIBIOS_DEVICE_NOT_FOUND;
 		}
 		/* PCIE devices directly connected */
-		addr = BSP_PCIE0_D_CFG0 + (func << 12) + where;
+		addr = d_cfg0 + (func << 12) + where;
 		pci_write_size(size, addr, val);
 	}
 	else
@@ -319,115 +322,35 @@ static int pci0_config_write(struct pci_bus *bus, unsigned int devfn, int where,
 			return PCIBIOS_DEVICE_NOT_FOUND;
 		}
 		/* Devices connected through bridge */
-		iowrite32((bus->number << 8) | (slot << 3) | func, (void*)BSP_PCIE0_H_IPCFG);
-		addr = BSP_PCIE0_D_CFG1 + where;
+		iowrite32((bus->number << 8) | (slot << 3) | func, (void*)h_ipcfg);
+		addr = d_cfg1 + where;
 		pci_write_size(size, addr, val);
 	}
 	return PCIBIOS_SUCCESSFUL;
 }
 
 //========================================================================================
-static int pci1_config_read(struct pci_bus *bus, unsigned int devfn, int where, int size, u32 *val)
+
+static int pci0_config_read(struct pci_bus *bus, unsigned int devfn, int where, int size, u32 *val)
 {
-	unsigned int slot = PCI_SLOT(devfn);
-	u8 func = PCI_FUNC(devfn);
-	uintptr_t addr = 0;
-	unsigned int data = 0;
-
-	if (pci1_bus_nr == 0xff)
-		pci1_bus_nr = bus->number;
-
-	if (bus->number == pci1_bus_nr)
-	{
-		if (slot != 0)
-		{
-			return PCIBIOS_DEVICE_NOT_FOUND;
-		}
-		/* PCIE host controller */
-		addr = (BSP_PCIE1_H_CFG + where) & (~0x3);
-		data = ioread32((void*)addr);
-
-		if (size == 1)
-			*val = (data >> ((where & 3) << 3)) & 0xff;
-		else if (size == 2)
-			*val = (data >> ((where & 3) << 3)) & 0xffff;
-		else
-			*val = data;
-	}
-	else if (bus->number == pci1_bus_nr + 1)
-	{
-		if (slot != 0)
-		{
-			return PCIBIOS_DEVICE_NOT_FOUND;
-		}
-		/* PCIE devices directly connected */
-		*val = pci_read_size(size, (BSP_PCIE1_D_CFG0 + (func << 12) + where));
-	}
-	else
-	{
-		if (slot >= MAX_NUM_DEV)
-		{
-			return PCIBIOS_DEVICE_NOT_FOUND;
-		}
-		/* Devices connected through bridge */
-		iowrite32((bus->number << 8) | (slot << 3) | func, (void*)BSP_PCIE1_H_IPCFG);
-		addr = BSP_PCIE1_D_CFG1 + where;
-		*val = pci_read_size(size, addr);
-	}
-	return PCIBIOS_SUCCESSFUL;
+	return pci_config_read(bus, devfn, where, size, val,
+		BSP_PCIE0_H_CFG, BSP_PCIE0_H_IPCFG, BSP_PCIE0_D_CFG0, BSP_PCIE0_D_CFG1, &pci0_bus_nr);
+}
+static int pci0_config_write(struct pci_bus *bus, unsigned int devfn, int where, int size, unsigned int val)
+{
+	return pci_config_write(bus, devfn, where, size, val,
+		BSP_PCIE0_H_CFG, BSP_PCIE0_H_IPCFG, BSP_PCIE0_D_CFG0, BSP_PCIE0_D_CFG1, &pci0_bus_nr);
 }
 
+static int pci1_config_read(struct pci_bus *bus, unsigned int devfn, int where, int size, u32 *val)
+{
+	return pci_config_read(bus, devfn, where, size, val,
+		BSP_PCIE1_H_CFG, BSP_PCIE1_H_IPCFG, BSP_PCIE1_D_CFG0, BSP_PCIE1_D_CFG1, &pci1_bus_nr);
+}
 static int pci1_config_write(struct pci_bus *bus, unsigned int devfn, int where, int size, unsigned int val)
 {
-	unsigned int slot = PCI_SLOT(devfn);
-	u8 func = PCI_FUNC(devfn);
-	uintptr_t addr = 0;
-	unsigned int data = 0;
-
-	if (pci1_bus_nr == 0xff)
-		pci1_bus_nr = bus->number;
-
-	if (bus->number == pci1_bus_nr)
-	{
-		if (slot != 0)
-		{
-			return PCIBIOS_DEVICE_NOT_FOUND;
-		}
-		/* PCIE host controller */
-		addr = (BSP_PCIE1_H_CFG + where) & (~0x3);
-		data = ioread32((void*)addr);
-
-		if (size == 1)
-			data = (data & ~(0xff << ((where & 3) << 3))) | (val << ((where & 3) << 3));
-		else if (size == 2)
-			data = (data & ~(0xffff << ((where & 3) << 3))) | (val << ((where & 3) << 3));
-		else
-			data = val;
-
-		iowrite32(data, (void*)addr);
-	}
-	else if (bus->number == pci1_bus_nr + 1)
-	{
-		if (slot != 0)
-		{
-			return PCIBIOS_DEVICE_NOT_FOUND;
-		}
-		/* PCIE devices directly connected */
-		addr = BSP_PCIE1_D_CFG0 + (func << 12) + where;
-		pci_write_size(size, addr, val);
-	}
-	else
-	{
-		if (slot >= MAX_NUM_DEV)
-		{
-			return PCIBIOS_DEVICE_NOT_FOUND;
-		}
-		/* Devices connected through bridge */
-		iowrite32((bus->number << 8) | (slot << 3) | func, (void*)BSP_PCIE1_H_IPCFG);
-		addr = BSP_PCIE1_D_CFG1 + where;
-		pci_write_size(size, addr, val);
-	}
-	return PCIBIOS_SUCCESSFUL;
+	return pci_config_write(bus, devfn, where, size, val,
+		BSP_PCIE1_H_CFG, BSP_PCIE1_H_IPCFG, BSP_PCIE1_D_CFG0, BSP_PCIE1_D_CFG1, &pci1_bus_nr);
 }
 
 //========================================================================================
