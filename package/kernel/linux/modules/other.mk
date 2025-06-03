@@ -1102,3 +1102,17 @@ define KernelPackage/regulator-userspace-consumer/description
 endef
 
 $(eval $(call KernelPackage,regulator-userspace-consumer))
+
+define KernelPackage/mcu-mini54fde
+  SUBMENU:=$(OTHER_MENU)
+  TITLE:=MINI54FDE microcontroller
+  KCONFIG:=CONFIG_MINI54FDE_MCU
+  FILES:=$(LINUX_DIR)/drivers/misc/mini54fde-mcu.ko
+  AUTOLOAD:=$(call AutoLoad,20,mini54fde)
+endef
+
+define KernelPackage/mcu-mini54fde/description
+  Kernel module for MINI54FDE Micro-Controller Unit
+  customized for this device by firmware in the MCU.
+  This chip controls the RGB LED, fan, and two thermal sensors.
+endef
