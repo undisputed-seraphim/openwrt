@@ -6,7 +6,7 @@
  
 +config USB_XHCI_REALTEK
 +	tristate "xHCI support for Realtek SoCs"
-+	depends on MIPS
++	depends on RTL8198C
 +	help
 +	  Say 'Y' to enable the support for the xHCI host controller
 +	  found in Realtek SoCs like the RTL8198C.
