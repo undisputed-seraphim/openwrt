@@ -9,6 +9,7 @@
  *
  */
 
+#include <cstdio>
 #include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/string.h>
@@ -102,6 +103,21 @@ void __init identify_rtl9302(void)
 		soc_info.name = "RTL9302";
 	}
 }
+
+static void rtl8198c_init_secondary(void)
+{
+#ifdef CONFIG_MIPS_MT_SMP
+	change_c0_status(ST0_IM, STATUSF_IP0 | STATUSF_IP1 | STATUSF_IP2 | STATUSF_IP7);
+#endif
+#ifdef CONFIG_MIPS_CMP
+	change_c0_status(ST0_IM, STATUSF_IP3 | STATUSF_IP4 | STATUSF_IP6 | STATUSF_IP7);
+#endif
+	change_c0_status(ST0_IM, 0xff00);
+}
+
+const struct plat_smp_ops rtl8198c_smp_ops = {
+	.init_secondary = rtl8198c_init_secondary,
+};
 
 void __init prom_init(void)
 {

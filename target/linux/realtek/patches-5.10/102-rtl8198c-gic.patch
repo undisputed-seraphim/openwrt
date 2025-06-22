@@ -1,0 +1,42 @@
+--- a/arch/mips/kernel/head.S
++++ b/arch/mips/kernel/head.S
+@@ -188,6 +188,39 @@ dtb_found:
+  * function after setting up the stack and gp registers.
+  */
+ NESTED(smp_bootstrap, 16, sp)
++
++#ifdef CONFIG_RTL8198C
++/*
++	#define SRAM_BASE (0x80000000+(64<<20))  //32M
++	#define smpboot_pc (SRAM_BASE+0x00)
++	#define smpboot_gp (SRAM_BASE+0x04)
++	#define smpboot_sp (SRAM_BASE+0x08)
++	#define smpboot_a0 (SRAM_BASE+0x0c)
++*/
++	#define PATT_READY  0x5555
++	#define PATT_MAGIC  0x7777
++	#define PATT_GO     0x9999
++	#define LAUNCH_REG  0xb8000068
++	#define POLLING_REG 0xb800006c
++
++	.extern smpboot_gp
++	la t0,smpboot_gp
++	or t0,0xa0000000
++	lw gp,0(t0)
++	nop
++
++	.extern smpboot_sp
++	la t0,smpboot_sp
++	or t0,0xa0000000
++	lw sp,0(t0)
++	nop
++
++	li t0,POLLING_REG
++	li t1, 0xfff0
++	sw t1,0(t0)
++	nop
++#endif /* CONFIG_RTL8198C */
++
+ 	smp_slave_setup
+ 	setup_c0_status_sec
+ 	j	start_secondary
