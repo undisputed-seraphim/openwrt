@@ -1,0 +1,5 @@
+#
+# Realtek RTL8198C SoCs
+#
+cflags-$(CONFIG_RTL8198C)   += -I$(srctree)/arch/mips/include/asm/mach-rtl8198c/
+load-$(CONFIG_RTL8198C)     += 0xffffffff80000000
