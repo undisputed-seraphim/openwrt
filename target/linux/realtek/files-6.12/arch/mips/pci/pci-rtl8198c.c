@@ -538,7 +538,7 @@ static int get_slot_nr(struct device_node* node)
 		}
 	}
 	pr_err("No slot nr found for device.");
-	return -1;
+	return PCIBIOS_DEVICE_NOT_FOUND;
 }
 
 static int rtl8198c_pci_probe(struct platform_device* pdev)
@@ -552,6 +552,14 @@ static int rtl8198c_pci_probe(struct platform_device* pdev)
 	// TODO Not sure how to handle these but they need to be set.
 	ioport_resource.start = 0x18C00000;
 	ioport_resource.end   = 0x19000000;
+
+	// TODO: init IRQ
+
+	struct pci_controller *ctrl = &rtl8198c_pci_controller[slot];
+	pr_info("Slot #%d io: 0x%08x - 0x%08x (offset %lu); mem: 0x%08x - 0x%08x (offset %lu)", slot,
+		ctrl->io_resource->start, ctrl->io_resource->end, ctrl->io_offset,
+		ctrl->mem_resource->start, ctrl->mem_resource->end, ctrl->mem_offset
+	);
 
 	register_pci_controller(&rtl8198c_pci_controller[slot]);
 	return 0;

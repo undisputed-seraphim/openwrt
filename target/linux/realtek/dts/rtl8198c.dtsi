@@ -109,8 +109,8 @@
 		device_type = "pci";
 		interrupt-parent = <&gic>;
 		interrupts = <GIC_SHARED 31 IRQ_TYPE_LEVEL_HIGH>;
-		ranges = <0x02000000 0 0 0x19000000 0 0x1000000>, /* pci memory */
-				 <0x01000000 0 0 0x18C00000 0 0x0200000>; /* io space */
+		ranges = <0x02000000 0 0 0x19000000 0 0x01000000>, /* pci memory */
+				 <0x01000000 0 0 0x18C00000 0 0x00200000>; /* io space */
 		reg = <0x18B00000 0x1000
 			   0x18B01000 0x1000
 			   0x18B10000 0x1000
@@ -128,8 +128,8 @@
 		device_type = "pci";
 		interrupt-parent = <&gic>;
 		interrupts = <GIC_SHARED 32 IRQ_TYPE_LEVEL_HIGH>;
-		ranges = <0x02000000 0 0 0x1A000000 0 0x1000000>, /* pci memory */
-				 <0x01000000 0 0 0x18E00000 0 0x0200000>; /* io space */
+		ranges = <0x02000000 0 0 0x1A000000 0 0x01000000>, /* pci memory */
+				 <0x01000000 0 0 0x18E00000 0 0x00200000>; /* io space */
 		reg = <0x18B20000 0x1000
 			   0x18B21000 0x1000
 			   0x18B30000 0x1000
