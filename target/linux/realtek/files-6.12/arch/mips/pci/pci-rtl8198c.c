@@ -5,19 +5,14 @@
  * Copyright (C) 2025 Tan Li Boon <undisputed.seraphim@gmail.com>
  */
 
-#include "linux/ioport.h"
-#include "linux/mod_devicetable.h"
-#include "uapi/linux/pci.h"
 #include <linux/clk.h>
 #include <linux/delay.h>
 #include <linux/device.h>
 #include <linux/gpio/consumer.h>
-#include <linux/iopoll.h>
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/of_pci.h>
 #include <linux/pci.h>
-#include <linux/phy/phy.h>
 #include <linux/platform_device.h>
 #include <linux/reset.h>
 
@@ -46,7 +41,6 @@
 #define BSP_PCIE0_H_MISC (BSP_PCIE0_H_EXT + 0x10)
 #define BSP_PCIE0_D_CFG0 0xB8B10000
 #define BSP_PCIE0_D_CFG1 0xB8B11000
-#define BSP_PCIE0_D_DBG 0xB8B00728
 #define BSP_PCIE0_D_MSG 0xB8B12000
 
 #define BSP_PCIE1_H_CFG 0xB8B20000
@@ -58,7 +52,6 @@
 #define BSP_PCIE1_H_MISC (BSP_PCIE1_H_EXT + 0x10)
 #define BSP_PCIE1_D_CFG0 0xB8B30000
 #define BSP_PCIE1_D_CFG1 0xB8B31000
-#define BSP_PCI11_D_DBG 0xB8B20728
 #define BSP_PCIE1_D_MSG 0xB8B32000
 
 #define BSP_PCIE0_D_IO 0xB8C00000
@@ -79,6 +72,28 @@
 #define PEFGHPTYPE_REG (0x020 + GPIO_BASE) /* Port EFGH type */
 #define PEFGHDIR_REG (0x024 + GPIO_BASE) /* Port EFGH direction */
 #define PEFGHDAT_REG (0x028 + GPIO_BASE) /* Port EFGH data */
+
+struct rtl8198x_pci_controller {
+	struct pci_controller controller;
+	uintptr_t devcfg0;
+	uintptr_t devcfg1;
+	uintptr_t dev_debug;
+	uintptr_t hostcfg_base;
+	uintptr_t hostext_base;
+	uintptr_t host_ipcfg;
+	uintptr_t host_mdio;
+	uintptr_t host_pwrcr;
+	spinlock_t lock;
+	int irq;
+	int slot_nr;
+	int bus_nr;
+};
+
+static inline struct rtl8198x_pci_controller* get_rtl8198x_from_controller(struct pci_bus* pbus)
+{
+	struct pci_controller* ctrl = (struct pci_controller*)pbus->sysdata;
+	return container_of(ctrl, struct rtl8198x_pci_controller, controller);
+}
 
 static void PCIE_MDIO_Reset(uintptr_t sys_pcie_phy)
 {
@@ -106,7 +121,7 @@ static void rtl8198_pcie0_device_perst(void)
 
 static void rtl8198_pcie1_device_perst(void)
 {
-//#if defined(CONFIG_RTL8198C)
+	//#if defined(CONFIG_RTL8198C)
 	/* PCIE Device Reset
 	 * The pcie1 slot reset register depends on the hw
 	 */
@@ -114,12 +129,12 @@ static void rtl8198_pcie1_device_perst(void)
 	mdelay(500);
 
 	REG32(PEFGHCNR_REG) &= ~(0x20000); /*port F bit 4 */
-	REG32(PEFGHDIR_REG) |=  (0x20000); /*port F bit 4 */
+	REG32(PEFGHDIR_REG) |= (0x20000); /*port F bit 4 */
 
 	REG32(PEFGHDAT_REG) &= ~(20000);
 	mdelay(1000);
 	REG32(PEFGHDAT_REG) |= (0x20000); // PERST=1
-//#endif
+	//#endif
 }
 
 static void PCIE_PHY_Reset(uintptr_t pcie_phy)
@@ -147,12 +162,12 @@ static int PCIE_Check_Link(uintptr_t cfgaddr, uintptr_t dbgaddr)
 	return 1;
 }
 
-static int PCIE_reset_procedure(int portnum, int mdio_reset)
+static int PCIE_reset_procedure(struct rtl8198x_pci_controller* ctrl, int portnum, int mdio_reset)
 {
 	pr_info("rtl8198c pcie: port = %d \n", portnum);
 
 	//#ifdef CONFIG_RTL8198C
-	REG32(0xb8000010) = REG32(0xb8000010) | (1 << 12 | 1 << 13 | 1 << 14 | 1 << 16 | 1 << 19 | 1 << 20); //(1<<14);
+	REG32(CLK_MANAGE) = REG32(CLK_MANAGE) | (1 << 12 | 1 << 13 | 1 << 14 | 1 << 16 | 1 << 19 | 1 << 20); //(1<<14);
 	//#endif
 
 	if (portnum == 0)
@@ -169,17 +184,15 @@ static int PCIE_reset_procedure(int portnum, int mdio_reset)
 #define SYS_PCIE_PHY0 (0xb8000000 + 0x50)
 #define SYS_PCIE_PHY1 (0xb8000000 + 0x54)
 		PCIE_MDIO_Reset((portnum == 0) ? SYS_PCIE_PHY0 : SYS_PCIE_PHY1);
-	}
 
-	mdelay(1000);
+		mdelay(500);
 
-	if (mdio_reset) {
 		// fix 8198 test chip pcie tx problem.
 		//#if defined(CONFIG_RTL8198C)
 		REG32(0xb8000104) = (REG32(0xb8000104) & (~0x3 << 20)) | (1 << 20); // PCIe MUX switch to PCIe reset
 
 		{
-			const uintptr_t mdioaddr = (portnum == 0) ? BSP_PCIE0_H_MDIO : BSP_PCIE1_H_MDIO;
+			const uintptr_t mdioaddr = ctrl->host_mdio;
 			const int phy40M = (ioread32((const void*)0xb8000008) & (1 << 24)) >> 24;
 			pr_debug("UPHY: 8198c ASIC u2 of u3 %s phy patch\n", (phy40M == 1) ? "40M" : "25M");
 			if (phy40M) {
@@ -200,20 +213,18 @@ static int PCIE_reset_procedure(int portnum, int mdio_reset)
 	}
 	//---------------------------------------
 
-	if (portnum == 0)
+	if (ctrl->slot_nr == 0)
 		rtl8198_pcie0_device_perst();
 	else
 		rtl8198_pcie1_device_perst();
 
-	PCIE_PHY_Reset((portnum == 0) ? BSP_PCIE0_H_PWRCR : BSP_PCIE1_H_PWRCR);
+	PCIE_PHY_Reset(ctrl->host_pwrcr);
 	mdelay(1000);
 	pr_info("rtl8198c pcie: check link %d", portnum);
-	int result = (portnum == 0) ? PCIE_Check_Link(BSP_PCIE0_D_CFG0, 0xb8b00728) : PCIE_Check_Link(BSP_PCIE1_D_CFG0, 0xb8b20728);
-	if (result == 0)
-	{
+	int result = PCIE_Check_Link(ctrl->devcfg0, ctrl->dev_debug);
+	if (result == 0) {
 		pr_info("rtl8198c pcie: port %d Cannot LinkUP", portnum);
 	}
-
 	return result;
 }
 
@@ -221,12 +232,9 @@ static int PCIE_reset_procedure(int portnum, int mdio_reset)
 
 #define MAX_NUM_DEV 4
 
-static int pci0_bus_number = 0xff;
-static int pci1_bus_number = 0xff;
-
 static unsigned int sized_ioread(unsigned char size, uintptr_t addr)
 {
-	unsigned int data;
+	unsigned int data = 0;
 	const void* const reg = (const void*)addr;
 	switch (size) {
 	case 1:
@@ -258,22 +266,24 @@ static void sized_iowrite(unsigned char size, uintptr_t addr, unsigned int data)
 }
 
 //========================================================================================
-static int rtl819x_pcibios0_read(struct pci_bus* bus, unsigned int devfn,
+static int rtl819x_pcibios_read(struct pci_bus* bus, unsigned int devfn,
 	int where, int size, unsigned int* val)
 {
+	struct rtl8198x_pci_controller* rtl8198x_ctrl = get_rtl8198x_from_controller(bus);
+	struct pci_controller* ctrl = &rtl8198x_ctrl->controller;
 	const int func = PCI_FUNC(devfn);
 	const int slot = PCI_SLOT(devfn);
 
 	unsigned int data = 0;
 	uintptr_t addr = 0;
 
-	if (pci0_bus_number == 0xff)
-		pci0_bus_number = bus->number;
+	if (ctrl->get_busno() == 0xff)
+		ctrl->set_busno(bus->number);
 
-	if (bus->number == pci0_bus_number) {
+	if (bus->number == ctrl->get_busno()) {
 		/* PCIE host controller */
 		if (slot == 0) {
-			addr = (BSP_PCIE0_H_CFG + where) & ~0x3;
+			addr = (rtl8198x_ctrl->hostcfg_base + where) & ~0x3;
 			data = ioread32((void*)addr);
 
 			switch (size) {
@@ -289,10 +299,10 @@ static int rtl819x_pcibios0_read(struct pci_bus* bus, unsigned int devfn,
 		} else {
 			return PCIBIOS_DEVICE_NOT_FOUND;
 		}
-	} else if (bus->number == (pci0_bus_number + 1)) {
+	} else if (bus->number == (ctrl->get_busno() + 1)) {
 		/* PCIE devices directly connected */
 		if (slot == 0) {
-			addr = BSP_PCIE0_D_CFG0 + (func << 12) + where;
+			addr = rtl8198x_ctrl->devcfg0 + (func << 12) + where;
 			*val = sized_ioread(size, addr);
 		} else {
 			return PCIBIOS_DEVICE_NOT_FOUND;
@@ -300,11 +310,11 @@ static int rtl819x_pcibios0_read(struct pci_bus* bus, unsigned int devfn,
 	} else {
 		/* Devices connected through bridge */
 		if (slot < MAX_NUM_DEV) {
-			addr = BSP_PCIE0_H_IPCFG;
+			addr = rtl8198x_ctrl->host_ipcfg;
 			data = ((bus->number) << 8) | (slot << 3) | func;
 			iowrite32(data, (void*)addr);
 
-			addr = BSP_PCIE0_D_CFG1 + where;
+			addr = rtl8198x_ctrl->devcfg1 + where;
 			*val = sized_ioread(size, addr);
 		} else {
 			return PCIBIOS_DEVICE_NOT_FOUND;
@@ -313,22 +323,25 @@ static int rtl819x_pcibios0_read(struct pci_bus* bus, unsigned int devfn,
 	return PCIBIOS_SUCCESSFUL;
 }
 
-static int rtl819x_pcibios0_write(struct pci_bus* bus, unsigned int devfn,
+static int rtl819x_pcibios_write(struct pci_bus* bus, unsigned int devfn,
 	int where, int size, unsigned int val)
 {
+	struct rtl8198x_pci_controller* rtl8198x_ctrl = get_rtl8198x_from_controller(bus);
+	struct pci_controller* ctrl = &rtl8198x_ctrl->controller;
+
 	const int func = PCI_FUNC(devfn);
 	const int slot = PCI_SLOT(devfn);
 
 	unsigned int data = 0;
 	uintptr_t addr = 0;
 
-	if (pci0_bus_number == 0xff)
-		pci0_bus_number = bus->number;
+	if (ctrl->get_busno() == 0xff)
+		ctrl->set_busno(bus->number);
 
-	if (bus->number == pci0_bus_number) {
+	if (bus->number == ctrl->get_busno()) {
 		/* PCIE host controller */
 		if (slot == 0) {
-			addr = (BSP_PCIE0_H_CFG + where) & ~0x3;
+			addr = (rtl8198x_ctrl->hostcfg_base + where) & ~0x3;
 			data = ioread32((void*)addr);
 
 			switch (size) {
@@ -345,21 +358,21 @@ static int rtl819x_pcibios0_write(struct pci_bus* bus, unsigned int devfn,
 			iowrite32(data, (void*)addr);
 		} else
 			return PCIBIOS_DEVICE_NOT_FOUND;
-	} else if (bus->number == (pci0_bus_number + 1)) {
+	} else if (bus->number == (ctrl->get_busno() + 1)) {
 		/* PCIE devices directly connected */
 		if (slot == 0) {
-			addr = BSP_PCIE0_D_CFG0 + (func << 12) + where;
+			addr = rtl8198x_ctrl->devcfg0 + (func << 12) + where;
 			sized_iowrite(size, addr, val);
 		} else
 			return PCIBIOS_DEVICE_NOT_FOUND;
 	} else {
 		/* Devices connected through bridge */
 		if (slot < MAX_NUM_DEV) {
-			addr = BSP_PCIE0_H_IPCFG;
+			addr = rtl8198x_ctrl->host_ipcfg;
 			data = ((bus->number) << 8) | (slot << 3) | func;
 			iowrite32(data, (void*)addr);
 
-			addr = BSP_PCIE0_D_CFG1 + where;
+			addr = rtl8198x_ctrl->devcfg1 + where;
 			sized_iowrite(size, addr, val);
 		} else
 			return PCIBIOS_DEVICE_NOT_FOUND;
@@ -367,125 +380,13 @@ static int rtl819x_pcibios0_write(struct pci_bus* bus, unsigned int devfn,
 
 	return PCIBIOS_SUCCESSFUL;
 }
-
-//========================================================================================
-static int rtl819x_pcibios1_read(struct pci_bus* bus, unsigned int devfn,
-	int where, int size, unsigned int* val)
-{
-	uintptr_t addr = 0;
-	unsigned int data = 0;
-
-	const int func = PCI_FUNC(devfn);
-	const int slot = PCI_SLOT(devfn);
-
-	if (pci1_bus_number == 0xff)
-		pci1_bus_number = bus->number;
-
-	if (bus->number == pci1_bus_number) {
-		/* PCIE host controller */
-		if (slot == 0) {
-			addr = (BSP_PCIE1_H_CFG + where) & ~0x3;
-			data = ioread32((void*)addr);
-
-			switch (size) {
-			case 1:
-				*val = (data >> ((where & 3) << 3)) & 0xff;
-				break;
-			case 2:
-				*val = (data >> ((where & 3) << 3)) & 0xffff;
-				break;
-			default:
-				*val = data;
-			}
-		} else
-			return PCIBIOS_DEVICE_NOT_FOUND;
-	} else if (bus->number == (pci1_bus_number + 1)) {
-		/* PCIE devices directly connected */
-		if (slot == 0) {
-			addr = BSP_PCIE1_D_CFG0 + (func << 12) + where;
-			*val = sized_ioread(size, addr);
-		} else
-			return PCIBIOS_DEVICE_NOT_FOUND;
-	} else {
-		/* Devices connected through bridge */
-		if (slot < MAX_NUM_DEV) {
-			addr = BSP_PCIE1_H_IPCFG;
-			data = ((bus->number) << 8) | (slot << 3) | func;
-			iowrite32(data, (void*)addr);
-
-			addr = BSP_PCIE1_D_CFG1 + where;
-			*val = sized_ioread(size, addr);
-		} else
-			return PCIBIOS_DEVICE_NOT_FOUND;
-	}
-	return PCIBIOS_SUCCESSFUL;
-}
-
-static int rtl819x_pcibios1_write(struct pci_bus* bus, unsigned int devfn,
-	int where, int size, unsigned int val)
-{
-	uintptr_t addr = 0;
-	unsigned int data = 0;
-
-	const int func = PCI_FUNC(devfn);
-	const int slot = PCI_SLOT(devfn);
-
-	if (pci1_bus_number == 0xff)
-		pci1_bus_number = bus->number;
-
-	if (bus->number == pci1_bus_number) {
-		/* PCIE host controller */
-		if (slot == 0) {
-			addr = (BSP_PCIE1_H_CFG + where) & ~0x3;
-			data = ioread32((void*)addr);
-
-			switch (size) {
-			case 1:
-				data = (data & ~(0xff << ((where & 3) << 3))) | (val << ((where & 3) << 3));
-				break;
-			case 2:
-				data = (data & ~(0xffff << ((where & 3) << 3))) | (val << ((where & 3) << 3));
-				break;
-			default:
-				data = val;
-			}
-
-			iowrite32(data, (void*)addr);
-		} else
-			return PCIBIOS_DEVICE_NOT_FOUND;
-	} else if (bus->number == (pci1_bus_number + 1)) {
-		/* PCIE devices directly connected */
-		if (slot == 0) {
-			addr = BSP_PCIE1_D_CFG0 + (func << 12) + where;
-			sized_iowrite(size, addr, val);
-		} else
-			return PCIBIOS_DEVICE_NOT_FOUND;
-	} else {
-		/* Devices connected through bridge */
-		if (slot < MAX_NUM_DEV) {
-			addr = BSP_PCIE1_H_IPCFG;
-			data = ((bus->number) << 8) | (slot << 3) | func;
-			iowrite32(data, (void*)addr);
-
-			addr = BSP_PCIE1_D_CFG1 + where;
-			sized_iowrite(size, addr, val);
-		} else
-			return PCIBIOS_DEVICE_NOT_FOUND;
-	}
-
-	return PCIBIOS_SUCCESSFUL;
-}
-//========================================================================================
 
 struct pci_ops bsp_pcie_ops = {
-	.read = rtl819x_pcibios0_read,
-	.write = rtl819x_pcibios0_write,
+	.read = rtl819x_pcibios_read,
+	.write = rtl819x_pcibios_write,
 };
 
-struct pci_ops bsp_pcie_ops1 = {
-	.read = rtl819x_pcibios1_read,
-	.write = rtl819x_pcibios1_write,
-};
+//========================================================================================
 
 /* Do platform specific device initialization at pci_enable_device() time */
 
@@ -497,71 +398,120 @@ int pcibios_plat_dev_init(struct pci_dev* dev)
 
 int pcibios_map_irq(const struct pci_dev* dev, u8 slot, u8 pin)
 {
-	int irq;
-	if (dev->bus->number < pci1_bus_number)
-	{
-		// TODO: How to get this from the device tree??
-		irq = 8 + 31;
+	struct rtl8198x_pci_controller* ctrl = get_rtl8198x_from_controller(dev->bus);
+	if (ctrl == NULL) {
+		pr_info("ctrl was null\n");
+		return -1;
 	}
-	else
-	{
-		irq = 8 + 32;
-	}
-	pr_info("INFO: map_irq: bus=%d ,slot=%d, pin=%d  irq=%d\n", dev->bus->number, slot, pin, irq);
-	return irq;
+	struct irq_desc* d = irq_to_desc(ctrl->irq);
+	if (d)
+		irqd_set_trigger_type(&d->irq_data, IRQ_TYPE_LEVEL_HIGH);
+	// int irq = of_irq_parse_and_map_pci(dev, slot, pin);
+	pr_info("INFO: map_irq: bus=%d ,slot=%d, pin=%d  irq=%d\n", dev->bus->number, slot, pin, ctrl->irq);
+	return ctrl->irq;
 }
+
+static int get_busno_0(void);
+static int get_busno_1(void);
+static void set_busno_0(int);
+static void set_busno_1(int);
 
 static struct resource rtl8198c_pci_io_resource[2];
 static struct resource rtl8198c_pci_mem_resource[2];
-static struct pci_controller rtl8198c_pci_controller[2] = {
+static struct rtl8198x_pci_controller controllers[2] = {
+	{
+		.controller = {
+			.io_resource = &rtl8198c_pci_io_resource[0],
+			.io_offset = 0,
+			.mem_resource = &rtl8198c_pci_mem_resource[0],
+			.mem_offset = 0,
+			.pci_ops = &bsp_pcie_ops,
+			.get_busno = get_busno_0,
+			.set_busno = set_busno_0,
+		},
+		.devcfg0 = BSP_PCIE0_D_CFG0,
+		.devcfg1 = BSP_PCIE0_D_CFG1,
+		.dev_debug = BSP_PCIE0_H_CFG + 0x0728,
+		.hostcfg_base = BSP_PCIE0_H_CFG,
+		.hostext_base = BSP_PCIE0_H_EXT,
+		.host_ipcfg = BSP_PCIE0_H_EXT + 0x0C,
+		.host_mdio = BSP_PCIE0_H_EXT,
+		.host_pwrcr = BSP_PCIE0_H_EXT + 0x08,
+		.irq = 31,
+		.slot_nr = 0,
+		.bus_nr = 0xFF,
+	},
+	{
+		.controller = {
+			.io_resource = &rtl8198c_pci_io_resource[1],
+			.io_offset = 0,
+			.mem_resource = &rtl8198c_pci_mem_resource[1],
+			.mem_offset = 0,
+			.pci_ops = &bsp_pcie_ops,
+			.get_busno = get_busno_1,
+			.set_busno = set_busno_1,
+		},
+		.devcfg0 = BSP_PCIE1_D_CFG0,
+		.devcfg1 = BSP_PCIE1_D_CFG1,
+		.dev_debug = BSP_PCIE1_H_CFG + 0x0728,
+		.hostcfg_base = BSP_PCIE1_H_CFG,
+		.hostext_base = BSP_PCIE1_H_EXT,
+		.host_ipcfg = BSP_PCIE1_H_EXT + 0x0C,
+		.host_mdio = BSP_PCIE1_H_EXT,
+		.host_pwrcr = BSP_PCIE1_H_EXT + 0x08,
+		.irq = 32,
+		.slot_nr = 1,
+		.bus_nr = 0xFF,
+	}
+};
+
+int get_busno_0(void)
 {
-	.io_resource = &rtl8198c_pci_io_resource[0],
-	.io_offset = 0,
-	.mem_resource = &rtl8198c_pci_mem_resource[0],
-	.mem_offset = 0,
-	.pci_ops = &bsp_pcie_ops,
-}, {
-	.io_resource = &rtl8198c_pci_io_resource[1],
-	.io_offset = 0,
-	.mem_resource = &rtl8198c_pci_mem_resource[1],
-	.mem_offset = 0,
-	.pci_ops = &bsp_pcie_ops1,
-}};
+	return controllers[0].bus_nr;
+}
+
+int get_busno_1(void)
+{
+	return controllers[1].bus_nr;
+}
+
+void set_busno_0(int busnr)
+{
+	controllers[0].bus_nr = busnr;
+}
+
+void set_busno_1(int busnr)
+{
+	controllers[1].bus_nr = busnr;
+}
 
 static int get_slot_nr(struct device_node* node)
 {
-	for (struct property* prop = node->properties; prop; prop = prop->next)
-	{
-		if (strncmp(prop->name, "slot", 4) == 0)
-		{
+	for (struct property* prop = node->properties; prop; prop = prop->next) {
+		if (strncmp(prop->name, "slot", 4) == 0) {
 			return *(int*)(prop->value);
 		}
 	}
 	pr_err("No slot nr found for device.");
-	return PCIBIOS_DEVICE_NOT_FOUND;
+	return -1;
 }
 
 static int rtl8198c_pci_probe(struct platform_device* pdev)
 {
-	int slot = get_slot_nr(pdev->dev.of_node);
+	const int slot = get_slot_nr(pdev->dev.of_node);
+	struct rtl8198x_pci_controller* controller = &controllers[slot];
+	struct pci_controller* ctrl = &controller->controller;
 
-	PCIE_reset_procedure(slot, 1);
+	PCIE_reset_procedure(controller, slot, 1);
 
-	pci_load_of_ranges(&rtl8198c_pci_controller[slot], pdev->dev.of_node);
+	pci_load_of_ranges(ctrl, pdev->dev.of_node);
+	spin_lock_init(&controller->lock);
 
 	// TODO Not sure how to handle these but they need to be set.
 	ioport_resource.start = 0x18C00000;
-	ioport_resource.end   = 0x19000000;
+	ioport_resource.end = 0x19000000;
 
-	// TODO: init IRQ
-
-	struct pci_controller *ctrl = &rtl8198c_pci_controller[slot];
-	pr_info("Slot #%d io: 0x%08x - 0x%08x (offset %lu); mem: 0x%08x - 0x%08x (offset %lu)", slot,
-		ctrl->io_resource->start, ctrl->io_resource->end, ctrl->io_offset,
-		ctrl->mem_resource->start, ctrl->mem_resource->end, ctrl->mem_offset
-	);
-
-	register_pci_controller(&rtl8198c_pci_controller[slot]);
+	register_pci_controller(ctrl);
 	return 0;
 }
 
