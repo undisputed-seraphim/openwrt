@@ -1,3 +1,10 @@
 {
-    "git.alwaysSignOff": true
+    "git.alwaysSignOff": true,
+    "C_Cpp.intelliSenseEngine": "disabled",
+    "clangd.fallbackFlags": [
+        "-I",
+        "${workspaceFolder}/build_dir/target-mips_24kc_musl/linux-realtek_rtl8198c/linux-6.12.71/include",
+        "-I",
+        "${workspaceFolder}/build_dir/target-mips_24kc_musl/linux-realtek_rtl8198c/linux-6.12.71/arch/mips/include"
+    ]
 }

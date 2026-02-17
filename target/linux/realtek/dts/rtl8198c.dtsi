@@ -115,7 +115,7 @@
 			   0x18B01000 0x1000
 			   0x18B10000 0x1000
 			   0x18B11000 0x1000>;
-		reg-names = "rc_cfg", "rc_ext", "dev_cfg0", "dev_cfg1";
+		reg-names = "hostcfg", "hostext", "devcfg0", "devcfg1";
 		slot-num = <0>;
 	};
 
@@ -134,7 +134,7 @@
 			   0x18B21000 0x1000
 			   0x18B30000 0x1000
 			   0x18B31000 0x1000>;
-		reg-names = "rc_cfg", "rc_ext", "dev_cfg0", "dev_cfg1";
+		reg-names = "hostcfg", "hostext", "devcfg0", "devcfg1";
 		slot-num = <1>;
 	};
 
