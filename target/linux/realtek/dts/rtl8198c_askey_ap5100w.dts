@@ -50,7 +50,7 @@
 
 &eth {
 	status = "okay";
-	/* MAC address stored in NAND hwpart */
+	local-mac-address = [CA FE BA BE 00 00];
 };
 
 &gsw {
