@@ -1,0 +1,62 @@
+// SPDX-License-Identifier: GPL-2.0-or-later OR MIT
+
+#include "rtl8198c.dtsi"
+
+/ {
+	compatible = "askey,ap5100w", "realtek,rtl8198c-soc";
+	model = "Askey AP5100W";
+
+	/*
+	 * The old RTL8198C BSP kernel reports 256 MiB DDR3
+	 * (memory: 10000000 @ 00000000).  Our 6.18 kernel
+	 * currently only sees 128 MiB — may be a bank-select
+	 * or memory-controller init issue.
+	 */
+	memory@0 {
+		device_type = "memory";
+		reg = <0x0 0x10000000>;
+	};
+
+	leds {
+		compatible = "gpio-leds";
+
+		/*
+		 * GPIO assignments below are from the old BSP boot log
+		 * and are TENTATIVE.  The old kernel reports:
+		 *   GPIO_MUX3 = 0x4924801b  GPIO_MUX4 = 0x180001b  GPIO_MUX5 = 0xffc003
+		 * GPIO pins need vendor schematics / original DTS for confirmation.
+		 */
+
+		led_wifi2g: wifi2g {
+			label = "green:wifi2g";
+			gpios = <&gpio1 31 1>;  /* tentative: GPIOH7 */
+		};
+
+		led_wifi5g: wifi5g {
+			label = "green:wifi5g";
+			gpios = <&gpio1 16 1>;  /* tentative: GPIOG0 */
+		};
+	};
+};
+
+/*
+ * NAND flash (Winbond W29N01HV, 128 MiB) detected by old BSP.
+ * Partitions from old kernel cmdline:
+ *   mtdparts=rtk_nand:5m@0x0(boot),3m@0x500000(setting),
+ *   6m@0x800000(linux),24m@0xe00000(rootfs),
+ *   6m@0x2600000(linux2),24m@0x2C00000(rootfs2),
+ *   38m@0x4400000(data),2m@0x6A00000(nvdata)
+ */
+
+&eth {
+	status = "okay";
+	/* MAC address stored in NAND hwpart */
+};
+
+&gsw {
+	status = "okay";
+};
+
+&xhci {
+	status = "okay";
+};
