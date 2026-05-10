@@ -1,0 +1,20 @@
+--- a/arch/mips/pci/Makefile
++++ b/arch/mips/pci/Makefile
+@@ -41,6 +41,7 @@ obj-$(CONFIG_PCI_LANTIQ)	+= pci-lantiq.o
+ obj-$(CONFIG_SOC_MT7620)	+= pci-mt7620.o
+ obj-$(CONFIG_SOC_RT288X)	+= pci-rt2880.o
+ obj-$(CONFIG_SOC_RT3883)	+= pci-rt3883.o
++obj-$(CONFIG_RTL8198C)		+= pci-rtl8198c.o
+ obj-$(CONFIG_SOC_TX4927)	+= pci-tx4927.o
+ obj-$(CONFIG_SOC_TX4938)	+= pci-tx4938.o
+ obj-$(CONFIG_TOSHIBA_RBTX4927)	+= fixup-rbtx4927.o
+--- a/arch/mips/Kconfig
++++ b/arch/mips/Kconfig
+@@ -700,6 +700,7 @@ config RTL8198C
+ 	select SYS_SUPPORTS_MIPS_CPS
+ 	select CPU_SUPPORTS_CPUFREQ
+ 	select MIPS_EXTERNAL_TIMER
++	select HAVE_PCI
+ 
+ config SGI_IP22
+ 	bool "SGI IP22 (Indy/Indigo2)"
