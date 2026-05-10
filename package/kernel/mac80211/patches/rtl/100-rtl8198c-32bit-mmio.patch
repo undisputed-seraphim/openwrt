@@ -1,0 +1,83 @@
+--- a/drivers/net/wireless/realtek/rtw88/pci.c
++++ b/drivers/net/wireless/realtek/rtw88/pci.c
+@@ -51,15 +51,21 @@ static u8 rtw_pci_get_tx_qsel(struct sk_
+ static u8 rtw_pci_read8(struct rtw_dev *rtwdev, u32 addr)
+ {
+ 	struct rtw_pci *rtwpci = (struct rtw_pci *)rtwdev->priv;
++	u32 word_addr = addr & ~3;
++	u32 byte_shift = (addr & 3) << 3;
++	u32 val = readl(rtwpci->mmap + word_addr);
+ 
+-	return readb(rtwpci->mmap + addr);
++	return (val >> byte_shift) & 0xff;
+ }
+ 
+ static u16 rtw_pci_read16(struct rtw_dev *rtwdev, u32 addr)
+ {
+ 	struct rtw_pci *rtwpci = (struct rtw_pci *)rtwdev->priv;
++	u32 word_addr = addr & ~3;
++	u32 byte_shift = (addr & 3) << 3;
++	u32 val = readl(rtwpci->mmap + word_addr);
+ 
+-	return readw(rtwpci->mmap + addr);
++	return (val >> byte_shift) & 0xffff;
+ }
+ 
+ static u32 rtw_pci_read32(struct rtw_dev *rtwdev, u32 addr)
+@@ -72,15 +78,23 @@ static u32 rtw_pci_read32(struct rtw_dev
+ static void rtw_pci_write8(struct rtw_dev *rtwdev, u32 addr, u8 val)
+ {
+ 	struct rtw_pci *rtwpci = (struct rtw_pci *)rtwdev->priv;
++	u32 word_addr = addr & ~3;
++	u32 byte_shift = (addr & 3) << 3;
++	u32 data = readl(rtwpci->mmap + word_addr);
+ 
+-	writeb(val, rtwpci->mmap + addr);
++	data = (data & ~(0xff << byte_shift)) | ((u32)val << byte_shift);
++	writel(data, rtwpci->mmap + word_addr);
+ }
+ 
+ static void rtw_pci_write16(struct rtw_dev *rtwdev, u32 addr, u16 val)
+ {
+ 	struct rtw_pci *rtwpci = (struct rtw_pci *)rtwdev->priv;
++	u32 word_addr = addr & ~3;
++	u32 byte_shift = (addr & 3) << 3;
++	u32 data = readl(rtwpci->mmap + word_addr);
+ 
+-	writew(val, rtwpci->mmap + addr);
++	data = (data & ~(0xffff << byte_shift)) | ((u32)val << byte_shift);
++	writel(data, rtwpci->mmap + word_addr);
+ }
+ 
+ static void rtw_pci_write32(struct rtw_dev *rtwdev, u32 addr, u32 val)
+@@ -388,7 +402,7 @@ static int rtw_pci_init(struct rtw_dev *
+ 	spin_lock_init(&rtwpci->irq_lock);
+ 	spin_lock_init(&rtwpci->hwirq_lock);
+ 	ret = rtw_pci_init_trx_ring(rtwdev);
+-
++	pr_info("rtw88: init_trx_ring done\n");
+ 	return ret;
+ }
+ 
+@@ -1564,18 +1578,21 @@ static int rtw_pci_setup_resource(struct
+ 	rtwpci = (struct rtw_pci *)rtwdev->priv;
+ 	rtwpci->pdev = pdev;
+ 
++	pr_info("rtw88: io_mapping start\n");
+ 	/* after this driver can access to hw registers */
+ 	ret = rtw_pci_io_mapping(rtwdev, pdev);
+ 	if (ret) {
+ 		rtw_err(rtwdev, "failed to request pci io region\n");
+ 		goto err_out;
+ 	}
++	pr_info("rtw88: io_mapping done, init start\n");
+ 
+ 	ret = rtw_pci_init(rtwdev);
+ 	if (ret) {
+ 		rtw_err(rtwdev, "failed to allocate pci resources\n");
+ 		goto err_io_unmap;
+ 	}
++	pr_info("rtw88: init done\n");
+ 
+ 	return 0;
+ 
