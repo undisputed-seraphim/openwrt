@@ -13,3 +13,16 @@ define Device/f-secure_sense
 endef
 
 # TARGET_DEVICES += f-secure_sense
+
+
+define Device/askey_ap5100w
+  LOADADDR := 0x80000000
+  SOC := rtl8198c
+  DEVICE_VENDOR := Askey
+  DEVICE_MODEL := AP5100W
+  IMAGE_SIZE := 32768k
+  DEVICE_PACKAGES += kmod-rtw88-8814ae
+  KERNEL_INITRAMFS := kernel-bin | append-dtb | rt-compress | rt-loader-rtl8198c
+endef
+
+TARGET_DEVICES += askey_ap5100w
