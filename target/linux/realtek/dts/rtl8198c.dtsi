@@ -155,9 +155,9 @@
 		};
 	};
 
-	eth: ethernet@18010000 {
+	eth: ethernet@18012000 {
 		compatible = "realtek,rtl819x-eth";
-		reg = <0x18010000 0x100>;
+		reg = <0x18012000 0x2000>;
 		interrupt-parent = <&gic>;
 		interrupts = <GIC_SHARED 25 IRQ_TYPE_LEVEL_HIGH>;
 		status = "disabled";
