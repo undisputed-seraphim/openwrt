@@ -1,0 +1,23 @@
+--- a/drivers/mtd/nand/raw/Kconfig
++++ b/drivers/mtd/nand/raw/Kconfig
+@@ -537,4 +537,12 @@
+ 	  load time (assuming you build diskonchip as a module) with the module
+ 	  parameter "inftl_bbt_write=1".
+ 
++config MTD_NAND_RTL8198C
++	tristate "Realtek RTL8198C parallel NAND controller"
++	depends on MIPS || COMPILE_TEST
++	depends on HAS_IOMEM
++	help
++	  Driver for the parallel NAND flash controller found on the
++	  Realtek RTL8198C SoC. Supports PIO mode and software ECC.
++
+ endif # MTD_RAW_NAND
+--- a/drivers/mtd/nand/raw/Makefile
++++ b/drivers/mtd/nand/raw/Makefile
+@@ -61,4 +61,5 @@ obj-$(CONFIG_MTD_NAND_RENESAS)		+= renesas-nand-controller.o
+ obj-$(CONFIG_MTD_NAND_NUVOTON_MA35)	+= nuvoton-ma35d1-nand-controller.o
+ obj-$(CONFIG_MTD_NAND_LOONGSON)		+= loongson-nand-controller.o
++obj-$(CONFIG_MTD_NAND_RTL8198C)		+= rtl8198c_nand.o
+ 
+ nand-objs := nand_base.o nand_legacy.o nand_bbt.o nand_timings.o nand_ids.o
