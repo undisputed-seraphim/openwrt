@@ -48,6 +48,61 @@
  *   38m@0x4400000(data),2m@0x6A00000(nvdata)
  */
 
+&nand {
+	status = "okay";
+
+	nand-chip@0 {
+		reg = <0>;
+
+		partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			partition@0 {
+				label = "boot";
+				reg = <0x0000000 0x500000>;
+				read-only;
+			};
+
+			partition@500000 {
+				label = "setting";
+				reg = <0x0500000 0x300000>;
+			};
+
+			partition@800000 {
+				label = "linux";
+				reg = <0x0800000 0x600000>;
+			};
+
+			partition@e00000 {
+				label = "rootfs";
+				reg = <0x0e00000 0x1800000>;
+			};
+
+			partition@2600000 {
+				label = "linux2";
+				reg = <0x2600000 0x600000>;
+			};
+
+			partition@2c00000 {
+				label = "rootfs2";
+				reg = <0x2c00000 0x1800000>;
+			};
+
+			partition@4400000 {
+				label = "data";
+				reg = <0x4400000 0x2600000>;
+			};
+
+			partition@6a00000 {
+				label = "nvdata";
+				reg = <0x6a00000 0x200000>;
+			};
+		};
+	};
+};
+
 &eth {
 	status = "okay";
 	local-mac-address = [CA FE BA BE 00 00];
