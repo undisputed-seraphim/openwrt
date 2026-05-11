@@ -115,6 +115,18 @@
 			status = "disabled";
 		};
 
+		nand: nand@1a000 {
+			compatible = "realtek,rtl8198c-nand";
+			reg = <0x1A000 0x400>;
+			#address-cells = <1>;
+			#size-cells = <1>;
+			status = "disabled";
+
+			nand-chip@0 {
+				reg = <0>;
+			};
+		};
+
 		uart0: serial@2000 {
 			compatible = "realtek,rtl819x-uart", "ns16550a";
 			reg = <0x2000 0x100>;
