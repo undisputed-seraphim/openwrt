@@ -23,13 +23,7 @@
 
 void flush_cache(void *start_addr, size_t count)
 {
-	/*
-	 * MIPS cores may have different cache lines. Most common are 16 and 32 bytes. Avoid
-	 * detection routines or multiple implementations and take the lowest known value that
-	 * will fit fine for cores with longer cache lines
-	 */
-
-	unsigned long lsize = 16;
+	unsigned long lsize = CONFIG_CACHELINE_SIZE;
 	unsigned long addr = (unsigned long)start_addr & ~(lsize - 1);
 	unsigned long aend = ((unsigned long)start_addr + count - 1) & ~(lsize - 1);
 

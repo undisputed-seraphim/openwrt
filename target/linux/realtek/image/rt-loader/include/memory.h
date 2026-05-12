@@ -12,6 +12,10 @@
 #define CACHE_HIT_INVALIDATE_I		0x10
 #define CACHE_HIT_WRITEBACK_INV_D	0x15
 
+#ifndef CONFIG_CACHELINE_SIZE
+#define CONFIG_CACHELINE_SIZE		16
+#endif
+
 #define ioread32(reg)			(*(volatile int *)(reg))
 #define iowrite32(val, reg)		(*(volatile int *)(reg) = val)
 
