@@ -21,6 +21,9 @@
 #define RTL93XX_MODEL_NAME_INFO_REG	0xbb000004
 #define RTL93XX_CHIP_INFO_EN		0xa0000
 
+#define RTL8198C_MODEL_REG		0xb8000000
+#define RTL8198C_MODEL_MASK		0xffff0000
+#define RTL8198C_MODEL_VAL		0x81980000
 
 /*
  * board_putchar() is the central function to write to serial console of the device. This is
@@ -43,6 +46,9 @@ void board_putchar(int ch, void *ctx)
 
 unsigned int board_get_memory(void)
 {
+#ifdef RTL8198C_MEMORY_SIZE
+	return RTL8198C_MEMORY_SIZE;
+#else
 	unsigned int dcr, bits;
 
 	if ((ioread32(RTL93XX_MODEL_NAME_INFO_REG) & 0xfffc0000) == 0x93100000) {
@@ -55,6 +61,7 @@ unsigned int board_get_memory(void)
 	}
 
 	return 1 << bits;
+#endif
 }
 
 /*
@@ -66,6 +73,18 @@ void board_get_system(char *buffer, int len)
 {
 	unsigned int chip_id, model_id, model_version, chip_version;
 	unsigned int reg, act, minfo, cinfo;
+
+	/* RTL8198C family (router SoC) — model ID in IO-Block region */
+	minfo = ioread32(RTL8198C_MODEL_REG);
+	if ((minfo & RTL8198C_MODEL_MASK) == RTL8198C_MODEL_VAL) {
+		model_id = minfo >> 16;
+		model_version = (minfo >> 8) & 0xf;
+		chip_version = (minfo >> 0) & 0xf;
+		chip_id = model_id;
+		snprintf(buffer, len, "RTL%04X rev %c (%04x)", model_id,
+			 chip_version + 65, chip_id);
+		return;
+	}
 
 	act = RTL93XX_CHIP_INFO_EN;
 	reg = RTL93XX_MODEL_NAME_INFO_REG;
