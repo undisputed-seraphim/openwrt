@@ -27,6 +27,14 @@ define Build/rt-compress
 	mv "$@.new" "$@"
 endef
 
+define Build/rt-loader-rtl8198c
+	$(MAKE) all clean -C rt-loader CROSS_COMPILE="$(TARGET_CROSS)" \
+		CFLAGS_EXTRA="-DCONFIG_CACHELINE_SIZE=32 -DRTL8198C_MEMORY_SIZE=268435456" \
+		KERNEL_ADDR=$(LOADADDR) \
+		KERNEL_IMG_IN="$@" KERNEL_IMG_OUT="$@.new" BUILD_DIR="$@.build"
+	mv "$@.new" "$@"
+endef
+
 define Build/rt-loader
 	$(MAKE) all clean -C rt-loader CROSS_COMPILE="$(TARGET_CROSS)" \
 		KERNEL_IMG_IN="$@" KERNEL_IMG_OUT="$@.new" BUILD_DIR="$@.build"
@@ -81,6 +89,17 @@ endef
 define Build/7z
 	$(STAGING_DIR_HOST)/bin/7zr a $(@).new -t7z -m0=lzma $(@)
 	mv $@.new $@
+endef
+
+define Device/Default
+  PROFILES = Default
+  KERNEL := kernel-bin | append-dtb | gzip | uImage gzip
+  KERNEL_INITRAMFS := kernel-bin | append-dtb | gzip | uImage gzip
+  DEVICE_DTS_DIR := ../dts-$(KERNEL_PATCHVER)
+  DEVICE_DTS = $$(SOC)_$(1)
+  IMAGES := sysupgrade.bin
+  IMAGE/sysupgrade.bin := append-kernel | pad-to 64k | append-rootfs | pad-rootfs | \
+	check-size | append-metadata
 endef
 
 define Build/h3c-image
