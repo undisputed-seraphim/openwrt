@@ -1,0 +1,55 @@
+--- a/drivers/net/wireless/realtek/rtw88/mac.c
++++ b/drivers/net/wireless/realtek/rtw88/mac.c
+@@ -747,6 +747,10 @@ start_download_firmware(struct rtw_dev *
+ static int download_firmware_validate(struct rtw_dev *rtwdev)
+ {
+ 	u32 fw_key;
++	u32 mcu = rtw_read32(rtwdev, REG_MCUFW_CTRL);
++
++	pr_info("rtw88: fw validate: MCUFW_CTRL=%08x FW_READY=%08lx\n",
++		mcu, (unsigned long)FW_READY);
+ 
+ 	if (!check_hw_ready(rtwdev, REG_MCUFW_CTRL, FW_READY_MASK, FW_READY)) {
+ 		fw_key = rtw_read32(rtwdev, REG_FW_DBG7) & FW_KEY_MASK;
+--- a/drivers/net/wireless/realtek/rtw88/pci.c
++++ b/drivers/net/wireless/realtek/rtw88/pci.c
+@@ -413,8 +413,14 @@ static void rtw_pci_reset_buf_desc(struc
+ 	u8 tmp;
+ 	dma_addr_t dma;
+ 
++	pr_info("rtw88: reset_buf: RTK_PCI_CTRL bytes: B0=%02x B1=%02x B2=%02x B3=%02x\n",
++		rtw_read8(rtwdev, RTK_PCI_CTRL + 0),
++		rtw_read8(rtwdev, RTK_PCI_CTRL + 1),
++		rtw_read8(rtwdev, RTK_PCI_CTRL + 2),
++		rtw_read8(rtwdev, RTK_PCI_CTRL + 3));
+ 	tmp = rtw_read8(rtwdev, RTK_PCI_CTRL + 3);
+ 	rtw_write8(rtwdev, RTK_PCI_CTRL + 3, tmp | 0xf7);
++	pr_info("rtw88: reset_buf: write done\n");
+ 
+ 	dma = rtwpci->tx_rings[RTW_TX_QUEUE_BCN].r.dma;
+ 	rtw_write32(rtwdev, RTK_PCI_TXBD_DESA_BCNQ, dma);
+@@ -1227,6 +1233,12 @@ static int rtw_pci_io_mapping(struct rtw
+ 
+ 	len = pci_resource_len(pdev, bar_id);
+ 	rtwpci->mmap = pci_iomap(pdev, bar_id, len);
++
++	pr_info("rtw88: io_map BAR%d phys=%08llx len=%lu mmap=%px\n",
++		bar_id,
++		(unsigned long long)pci_resource_start(pdev, bar_id),
++		len, rtwpci->mmap);
++
+ 	if (!rtwpci->mmap) {
+ 		pci_release_regions(pdev);
+ 		rtw_err(rtwdev, "failed to map pci memory\n");
+@@ -1796,6 +1808,11 @@ int rtw_pci_probe(struct pci_dev *pdev,
+ 		"rtw88 pci probe: vendor=0x%4.04X device=0x%4.04X rev=%d\n",
+ 		pdev->vendor, pdev->device, pdev->revision);
+ 
++	pr_info("rtw88: probe bus=%d slot=%d bridge %04x:%04x\n",
++		pdev->bus->number, PCI_SLOT(pdev->devfn),
++		bridge ? bridge->vendor : 0,
++		bridge ? bridge->device : 0);
++
+ 	ret = rtw_pci_claim(rtwdev, pdev);
+ 	if (ret) {
+ 		rtw_err(rtwdev, "failed to claim pci device\n");
