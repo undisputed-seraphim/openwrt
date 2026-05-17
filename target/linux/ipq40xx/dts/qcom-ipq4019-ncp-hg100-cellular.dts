@@ -6,6 +6,8 @@
 #include <dt-bindings/input/input.h>
 #include <dt-bindings/leds/common.h>
 #include <dt-bindings/soc/qcom,tcsr.h>
+#include <dt-bindings/sound/ipq4019-audio.h>
+#include <dt-bindings/clock/qca,adcc-ipq4019.h>
 
 / {
 	model = "Sony NCP-HG100/Cellular";
@@ -306,6 +308,72 @@
 			pins = "gpio5";
 			function = "gpio";
 			output-high;
+		};
+	};
+
+	audio_gpio_pins: audio_gpio_pinmux {
+		mux_1 {
+			pins = "gpio53";
+			function = "gpio";
+			output-high;
+		};
+		mux_2 {
+			pins = "gpio57";
+			function = "gpio";
+			output-high;
+		};
+		mux_3 {
+			pins = "gpio54";
+			function = "gpio";
+			output-high;
+		};
+	};
+
+	audio_pins: audio_pinmux {
+		mux_1 {
+			pins = "gpio53";
+			function = "i2s_tx_bclk";
+		};
+		mux_2 {
+			pins = "gpio57";
+			function = "i2s_tx_fsync";
+		};
+		mux_3 {
+			pins = "gpio54";
+			function = "i2s_td1";
+		};
+	};
+
+	audio1_gpio_pins: audio1_gpio_pinmux {
+		mux_1 {
+			pins = "gpio60";
+			function = "gpio";
+			output-high;
+		};
+		mux_2 {
+			pins = "gpio61";
+			function = "gpio";
+			output-high;
+		};
+		mux_3 {
+			pins = "gpio63";
+			function = "gpio";
+			output-high;
+		};
+	};
+
+	audio1_pins: audio1_pinmux {
+		mux_1 {
+			pins = "gpio60";
+			function = "i2s_rx_bclk";
+		};
+		mux_2 {
+			pins = "gpio61";
+			function = "i2s_rx_fsync";
+		};
+		mux_3 {
+			pins = "gpio63";
+			function = "i2s_rxd";
 		};
 	};
 };
@@ -669,6 +737,88 @@
 	qcom,ath10k-calibration-variant = "Sony-NCP-HG100-Cellular";
 	nvmem-cells = <&precal_art_5000>;
 	nvmem-cell-names = "pre-calibration";
+};
+
+&{/soc} {
+	audio: audio@7700000 {
+		compatible = "qca,ipq4019-audio-adss";
+		reg = <0x7700000 0x34>,
+		      <0x7707000 0x20>;
+		resets = <&gcc GCC_AUDIO_BCR>;
+		reset-names = "blk_rst";
+		status = "okay";
+	};
+
+	mbox0: mbox@7708000 {
+		dma-index = <0>;
+		compatible = "qca,ipq4019-mbox";
+		reg = <0x7708000 0x1000>;
+		interrupts = <GIC_SPI 156 IRQ_TYPE_LEVEL_HIGH>;
+		tx-channel = <MBOX0_TX_ID>;
+		rx-channel = <MBOX0_RX_ID>;
+		status = "okay";
+	};
+
+	mbox3: mbox@770e000 {
+		dma-index = <3>;
+		compatible = "qca,ipq4019-mbox";
+		reg = <0x770E000 0x1000>;
+		interrupts = <GIC_SPI 159 IRQ_TYPE_LEVEL_HIGH>;
+		tx-channel = <MBOX3_TX_ID>;
+		rx-channel = <MBOX3_RX_ID>;
+		status = "okay";
+	};
+
+	stereo0: stereo@7709000 {
+		stereo-index = <STEREO0_ID>;
+		compatible = "qca,ipq4019-stereo";
+		reg = <0x7709000 0x1000>;
+		status = "okay";
+	};
+
+	stereo3: stereo@770f000 {
+		stereo-index = <STEREO3_ID>;
+		compatible = "qca,ipq4019-stereo";
+		reg = <0x770F000 0x1000>;
+		status = "okay";
+	};
+
+	i2splatform: qca-pcm-i2s@7709000 {
+		compatible = "qca,ipq4019-pcm-i2s";
+		reg = <0x7709000 0x1000>;
+		status = "okay";
+	};
+
+	i2s: ipq4019-pcm-i2s@0 {
+		compatible = "qca,ipq4019-i2s";
+		dma-tx-channel = <MBOX0_TX_ID>;
+		stereo-tx-port = <STEREO0_ID>;
+		dma-rx-channel = <MBOX3_RX_ID>;
+		stereo-rx-port = <STEREO3_ID>;
+		clocks = <&adcc ADCC_TXB_CLK_SRC>,
+			 <&adcc ADCC_TXM_CLK_SRC>,
+			 <&adcc ADCC_RXB_CLK_SRC>,
+			 <&adcc ADCC_RXM_CLK_SRC>;
+		clock-names = "audio_tx_bclk",
+			      "audio_tx_mclk",
+			      "audio_rx_bclk",
+			      "audio_rx_mclk";
+		status = "okay";
+	};
+
+	sound: sound@0 {
+		compatible = "qca,ipq4019-audio";
+		status = "okay";
+		pinctrl-0 = <&audio_gpio_pins &audio1_gpio_pins>;
+		pinctrl-1 = <&audio_pins &audio1_pins>;
+		pinctrl-names = "default", "audio";
+	};
+
+	adcc: clock-controller@7700038 {
+		compatible = "qca,adcc-ipq4019";
+		reg = <0x7700038 0x1c8>;
+		status = "okay";
+	};
 };
 
 &watchdog {

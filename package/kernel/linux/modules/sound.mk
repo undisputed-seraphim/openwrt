@@ -240,6 +240,28 @@ endef
 
 $(eval $(call KernelPackage,sound-soc-cx2092x-spi))
 
+
+define KernelPackage/sound-soc-ipq
+  TITLE:=Qualcomm IPQ40xx Audio support
+  KCONFIG:= \
+    CONFIG_SND_SOC_QCOM=y \
+    CONFIG_SND_SOC_IPQ
+  FILES:= \
+    $(LINUX_DIR)/sound/soc/qcom/ipq/ipq.ko \
+    $(LINUX_DIR)/sound/soc/qcom/ipq/ipq-adss.ko \
+    $(LINUX_DIR)/sound/soc/qcom/ipq/snd-soc-ipq-cpu-dai.ko \
+    $(LINUX_DIR)/sound/soc/qcom/ipq/snd-soc-ipq-pcm-i2s.ko \
+    $(LINUX_DIR)/sound/soc/qcom/ipq/ipq-mbox.ko \
+    $(LINUX_DIR)/sound/soc/qcom/ipq/ipq-stereo.ko
+  AUTOLOAD:=$(call AutoLoad,50, \
+    ipq-adss ipq-mbox ipq-stereo snd-soc-ipq-cpu-dai \
+    snd-soc-ipq-pcm-i2s ipq)
+  DEPENDS:=+kmod-sound-soc-core @TARGET_ipq40xx
+  $(call AddDepends/sound)
+endef
+
+$(eval $(call KernelPackage,sound-soc-ipq))
+
 define KernelPackage/sound-soc-imx
   TITLE:=IMX SoC support
   KCONFIG:=\
