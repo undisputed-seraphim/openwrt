@@ -279,7 +279,7 @@ static const struct snd_soc_dapm_route cx2092x_intercon[] = {
 
 static struct snd_soc_dai_driver cx2092x_dai[] = {
 	{
-		.name = "cx2092x-aif",
+		.name = "qca-i2s-conexant-dai",
 		.capture = {
 		.stream_name = "Capture",
 		.channels_min = 2,
