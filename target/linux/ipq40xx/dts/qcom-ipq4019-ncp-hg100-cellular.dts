@@ -518,8 +518,8 @@
 			reg = <0x18>;
 			pinctrl-0 = <&alc1304_pins>;
 			pinctrl-names = "default";
-			shutdown-gpio = <&tlmm 44 GPIO_ACTIVE_LOW>;
-			mute-gpio = <&tlmm 45 GPIO_ACTIVE_HIGH>;
+			shutdown-gpios = <&tlmm 44 GPIO_ACTIVE_LOW>;
+			mute-gpios = <&tlmm 45 GPIO_ACTIVE_HIGH>;
 		};
 
 		conexant@41 {

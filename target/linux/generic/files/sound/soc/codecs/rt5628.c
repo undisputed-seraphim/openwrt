@@ -22,25 +22,22 @@
 #include <sound/core.h>
 #include <sound/pcm.h>
 #include <sound/pcm_params.h>
+#include <linux/pinctrl/consumer.h>
 #include <sound/soc.h>
 #include <sound/soc-dapm.h>
 #include <sound/initval.h>
 #include "rt5628.h"
-#include <linux/gpio.h>
-#include <linux/of_gpio.h>
-#include <linux/pinctrl/devinfo.h>
+#include <linux/gpio/consumer.h>
 
 #define I2S 0
 
 struct rt5628_priv {
 	struct regmap *regmap;
 	unsigned int sysclk;
-	int shutdown_gpio;
-	int mute_gpio;
+	struct gpio_desc *gpiod_shutdown;
+	struct gpio_desc *gpiod_mute;
 	int amp_status;
 };
-
-struct rt5628_priv *g_rt5628 = NULL;
 
 /*
  *   define a virtual reg for misc func
@@ -200,7 +197,7 @@ static const char *rt5628_spk_l_source_sel[] = {"LPRN", "LPRP", "LPLN", "MM"};		
 static const char *rt5628_spk_source_sel[] = {"VMID", "HP Mixer", "Speaker Mixer"};	/*1*/
 static const char *rt5628_hpl_source_sel[] = {"VMID", "HP Left Mixer"};				/*2*/
 static const char *rt5628_hpr_source_sel[] = {"VMID", "HP Right Mixer"};			/*3*/
-static const char *rt5628_classd_ratio_sel[] = {"2.25 VDD", "2.00 VDD", "1.75 VDD", "1.5 VDD"
+static const char *rt5628_classd_ratio_sel[] = {"2.25 VDD", "2.00 VDD", "1.75 VDD", "1.5 VDD",
 					"1.25 VDD", "1 VDD"};					/*4*/
 static const char *rt5628_direct_out_sel[] = {"Normal", "Direct Out"};				/*5*/
 
@@ -213,15 +210,6 @@ SOC_ENUM_SINGLE(RT5628_OUTPUT_MIXER_CTRL, 8, 2, rt5628_hpr_source_sel), 			/*3*/
 SOC_ENUM_SINGLE(RT5628_GEN_CTRL, 9, 6, rt5628_classd_ratio_sel),					/*4*/
 SOC_ENUM_SINGLE(RT5628_OUTPUT_MIXER_CTRL, 1, 2, rt5628_direct_out_sel), 			/*5*/
 };
-
-#define RT5628_HWEQ(xname) \
-{	.iface = SNDRV_CTL_ELEM_IFACE_MIXER, .name = xname, \
-	.info = rt5628_hweq_info, \
-	.access = (SNDRV_CTL_ELEM_ACCESS_TLV_READ | \
-		SNDRV_CTL_ELEM_ACCESS_READWRITE), \
-	.get = rt5628_hweq_get, \
-	.put = rt5628_hweq_put \
-}
 
 static const struct snd_kcontrol_new rt5628_snd_controls[] = {
 #if 0
@@ -243,67 +231,54 @@ static void hp_depop_mode2(struct snd_soc_component *codec)
 {
 	struct rt5628_priv *rt5628 = snd_soc_component_get_drvdata(codec);
 
-	pr_err("[%s]\r\n", __func__);
-#if 1
 	regmap_update_bits(rt5628->regmap, 0x3e, 0x8000, 0x8000);
 	regmap_update_bits(rt5628->regmap, 0x04, 0x8080, 0x8080);
 	regmap_update_bits(rt5628->regmap, 0x3a, 0x0130, 0x0130);
-	//regmap_update_bits(rt5628->regmap, 0x3c, 0x2000, 0x2000);
 	regmap_update_bits(rt5628->regmap, 0x3c, 0x7FF8, 0x7FF8);
 	regmap_update_bits(rt5628->regmap, 0x3e, 0x0600, 0x0600);
 	regmap_update_bits(rt5628->regmap, 0x5e, 0x03E0, 0x03E0);
-#endif
-	schedule_timeout_uninterruptible(msecs_to_jiffies(300));
+	msleep(300);
 }
 
 static int hp_pga_event(struct snd_soc_dapm_widget *w,
 		struct snd_kcontrol *kcontrol, int event)
 {
 	struct snd_soc_component *codec = snd_soc_dapm_to_component(w->dapm);
-	int ret = 0;
+	struct rt5628_priv *rt5628 = snd_soc_component_get_drvdata(codec);
 	u32 reg;
-	struct rt5628_priv *rt5628 = NULL;
-	rt5628 = g_rt5628;
 
-	ret = regmap_read(codec->regmap, VIRTUAL_REG_FOR_MISC_FUNC, &reg) & 0x3;
+	regmap_read(codec->regmap, VIRTUAL_REG_FOR_MISC_FUNC, &reg);
+	reg &= 0x3;
 	if (reg != 0x3 && reg != 0)
 		return 0;
 
-	switch (event)
-	{
-		case SND_SOC_DAPM_POST_PMD:
-			if (rt5628->amp_status == 0)
-				return 0;
-
-			pr_err("[%s] SND_SOC_DAPM_POST_PMD\r\n", __func__);
-			regmap_update_bits(codec->regmap, 0x3a, 0x0030, 0x0000);
-			regmap_update_bits(codec->regmap, 0x04, 0x8080, 0x8080);
-#if 0
-			snd_soc_update_bits(codec, 0x3e, 0x0600, 0x0000);
-#endif
-			gpio_direction_output(rt5628->shutdown_gpio, 0);
-			gpio_direction_output(rt5628->mute_gpio, 1);
-
-			rt5628->amp_status = 0;
-
-			break;
-		case SND_SOC_DAPM_POST_PMU:
-			if (rt5628->amp_status == 1)
-				return 0;
-
-			pr_err("[%s] SND_SOC_DAPM_POST_PMU\r\n", __func__);
-			hp_depop_mode2(codec);
-#if 1
-			regmap_update_bits(codec->regmap ,0x04, 0x8080, 0x0000 );
-#endif
-			gpio_direction_output(rt5628->shutdown_gpio, 1);
-			gpio_direction_output(rt5628->mute_gpio, 0);
-
-			rt5628->amp_status = 1;
-
-			break;
-		default:
+	switch (event) {
+	case SND_SOC_DAPM_POST_PMD:
+		if (rt5628->amp_status == 0)
 			return 0;
+
+		dev_dbg(codec->dev, "%s: SND_SOC_DAPM_POST_PMD\n", __func__);
+		regmap_update_bits(codec->regmap, 0x3a, 0x0030, 0x0000);
+		regmap_update_bits(codec->regmap, 0x04, 0x8080, 0x8080);
+		gpiod_set_value(rt5628->gpiod_shutdown, 1);
+		gpiod_set_value(rt5628->gpiod_mute, 1);
+
+		rt5628->amp_status = 0;
+		break;
+	case SND_SOC_DAPM_POST_PMU:
+		if (rt5628->amp_status == 1)
+			return 0;
+
+		dev_dbg(codec->dev, "%s: SND_SOC_DAPM_POST_PMU\n", __func__);
+		hp_depop_mode2(codec);
+		regmap_update_bits(codec->regmap, 0x04, 0x8080, 0x0000);
+		gpiod_set_value(rt5628->gpiod_shutdown, 0);
+		gpiod_set_value(rt5628->gpiod_mute, 0);
+
+		rt5628->amp_status = 1;
+		break;
+	default:
+		return 0;
 	}
 	return 0;
 }
@@ -571,8 +546,7 @@ static int get_coeff(int mclk, int rate)
 {
 	int i;
 
-	printk("get_coeff mclk=%d,rate=%d\n",mclk,rate);
-
+	pr_debug("get_coeff mclk=%d,rate=%d\n", mclk, rate);
 
 	for (i = 0; i < ARRAY_SIZE(coeff_div); i++) {
 		if (coeff_div[i].rate == rate) // && coeff_div[i].mclk == mclk)
@@ -653,14 +627,14 @@ static int rt5628_pcm_hw_params(struct snd_pcm_substream *substream,
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	struct snd_soc_card *card = rtd->card;
 	struct rt5628_priv *rt5628 = snd_soc_card_get_drvdata(card);
-
-	int ret = 0;
+	int ret, coeff;
 	u32 iface;
 
-	ret = regmap_read(rt5628->regmap, RT5628_AUDIO_DATA_CTRL, &iface) & 0xfff3;
-	int coeff = get_coeff(rt5628->sysclk, params_rate(params));
-
 	dev_dbg(dai->dev, "enter %s\n", __func__);
+
+	ret = regmap_read(rt5628->regmap, RT5628_AUDIO_DATA_CTRL, &iface);
+	iface &= 0xfff3;
+	coeff = get_coeff(rt5628->sysclk, params_rate(params));
 
 	switch (params_format(params))
 	{
@@ -703,51 +677,63 @@ static int rt5628_set_dai_sysclk(struct snd_soc_dai *codec_dai, int clk_id, unsi
 
 
 
-static int rt5628_set_dai_pll(struct snd_soc_dai *codec_dai, int pll_id,int source,unsigned int freq_in, unsigned int freq_out)
+static int rt5628_set_dai_pll(struct snd_soc_dai *codec_dai, int pll_id,
+			      int source, unsigned int freq_in,
+			      unsigned int freq_out)
 {
-	int i;
-	int ret = -EINVAL;
+	int i, ret;
 	struct snd_soc_component *codec = codec_dai->component;
 
 	if (pll_id < RT5628_PLL_FR_MCLK || pll_id > RT5628_PLL_FR_BCLK)
 		return -EINVAL;
 
-
 	if (!freq_in || !freq_out)
-	{
 		return 0;
-	}
 
-	if (RT5628_PLL_FR_MCLK == pll_id)
-	{
-		for (i = 0; i < ARRAY_SIZE(codec_master_pll_div); i ++)
-		{
-			if ((freq_in == codec_master_pll_div[i].pll_in) && (freq_out == codec_master_pll_div[i].pll_out))
-			{
-				ret = regmap_write(codec->regmap, RT5628_GLOBAL_CLK_CTRL, 0x0000);    			/*PLL source from MCLK*/
-				ret = regmap_write(codec->regmap, RT5628_PLL_CTRL, codec_master_pll_div[i].regvalue);   	/*set pll code*/
-				ret = regmap_update_bits(codec->regmap, RT5628_PWR_MANAG_ADD2, 0x1000, 0x1000);        	/*enable pll power*/
-				ret = 0;
+	if (RT5628_PLL_FR_MCLK == pll_id) {
+		for (i = 0; i < ARRAY_SIZE(codec_master_pll_div); i++) {
+			if (freq_in == codec_master_pll_div[i].pll_in &&
+			    freq_out == codec_master_pll_div[i].pll_out) {
+				ret = regmap_write(codec->regmap,
+					RT5628_GLOBAL_CLK_CTRL, 0x0000);
+				if (ret)
+					return ret;
+				ret = regmap_write(codec->regmap,
+					RT5628_PLL_CTRL,
+					codec_master_pll_div[i].regvalue);
+				if (ret)
+					return ret;
+				ret = regmap_update_bits(codec->regmap,
+					RT5628_PWR_MANAG_ADD2,
+					0x1000, 0x1000);
+				if (ret)
+					return ret;
+			}
+		}
+	} else {
+		for (i = 0; i < ARRAY_SIZE(codec_slave_pll_div); i++) {
+			if (freq_in == codec_slave_pll_div[i].pll_in &&
+			    freq_out == codec_slave_pll_div[i].pll_out) {
+				ret = regmap_write(codec->regmap,
+					RT5628_GLOBAL_CLK_CTRL, 0x4000);
+				if (ret)
+					return ret;
+				ret = regmap_write(codec->regmap,
+					RT5628_PLL_CTRL,
+					codec_slave_pll_div[i].regvalue);
+				if (ret)
+					return ret;
+				ret = regmap_update_bits(codec->regmap,
+					RT5628_PWR_MANAG_ADD2,
+					0x1000, 0x1000);
+				if (ret)
+					return ret;
 			}
 		}
 	}
-	else     /*slave mode*/
-	{
-		for (i = 0; i < ARRAY_SIZE(codec_slave_pll_div); i ++)
-		{
-			if ((freq_in == codec_slave_pll_div[i].pll_in) && (freq_out == codec_slave_pll_div[i].pll_out))
-			{
-				ret = regmap_write(codec->regmap, RT5628_GLOBAL_CLK_CTRL, 0x4000);    			/*PLL source from BCLK*/
-				ret = regmap_write(codec->regmap, RT5628_PLL_CTRL, codec_slave_pll_div[i].regvalue);  	 /*set pll code*/
-				ret = regmap_update_bits(codec->regmap, RT5628_PWR_MANAG_ADD2, 0x1000, 0x1000);       	 /*enable pll power*/
-				ret = 0;
-			}
-		}
-	}
 
-	ret = regmap_update_bits(codec->regmap, RT5628_GLOBAL_CLK_CTRL, 0x8000, 0x8000);
-
-	return ret;
+	return regmap_update_bits(codec->regmap, RT5628_GLOBAL_CLK_CTRL,
+				  0x8000, 0x8000);
 }
 
 static int rt5628_codec_audio_prepare(struct snd_pcm_substream *substream,
@@ -832,10 +818,7 @@ static int rt5628_set_bias_level(struct snd_soc_component *codec,
 	case SND_SOC_BIAS_STANDBY:
 		break;
 	case SND_SOC_BIAS_OFF:
-		pr_err("[%s] SND_SOC_BIAS_OFF\r\n", __func__);
-#if 0
-		snd_soc_update_bits(codec, 0x02, 0x8080, 0x8080);
-#endif
+		dev_dbg(codec->dev, "%s: SND_SOC_BIAS_OFF\n", __func__);
 		ret = regmap_update_bits(codec->regmap, 0x04, 0x8080, 0x8080);
 		ret = regmap_update_bits(codec->regmap, 0x3e, 0x8600, 0x0000);
 		ret = regmap_update_bits(codec->regmap, 0x3c, 0x7FF8, 0x0000);
@@ -869,7 +852,7 @@ static int rt5628_resume(struct snd_soc_component *codec)
 
 static int rt5628_probe(struct snd_soc_component *codec)
 {
-	pr_info("RT5628 Audio Codec probed\n");
+	dev_dbg(codec->dev, "RT5628 Audio Codec probed\n");
 
 	hp_depop_mode2(codec);
 
@@ -910,19 +893,16 @@ static const struct regmap_config rt5628_regmap = {
 	.num_reg_defaults = ARRAY_SIZE(rt5628_reg),
 };
 
-#if 1
-static ssize_t show_reg(struct device *dev, struct device_attribute *attr, char *buf)
+static ssize_t show_reg(struct device *dev, struct device_attribute *attr,
+			char *buf)
 {
 	u32 ret1, ret2, ret3, ret4, ret5, ret6, ret7, ret8, ret9, ret10, ret11, ret12;
 	u32 ret13, ret14, ret15, ret16, ret17, ret18, ret19, ret20, ret21, ret22, ret23;
-	struct rt5628_priv *rt5628 = NULL;
+	struct i2c_client *i2c = to_i2c_client(dev);
+	struct rt5628_priv *rt5628 = i2c_get_clientdata(i2c);
 
-	if(g_rt5628 == NULL)
-	{
+	if (!rt5628)
 		return 0;
-	}
-
-	rt5628 = g_rt5628;
 
 	regmap_read(rt5628->regmap, RT5628_RESET,                &ret1);
 	regmap_read(rt5628->regmap, RT5628_HP_OUT_VOL,           &ret2);
@@ -948,58 +928,61 @@ static ssize_t show_reg(struct device *dev, struct device_attribute *attr, char 
 	regmap_read(rt5628->regmap, RT5628_VENDOR_ID2,           &ret22);
 	regmap_read(rt5628->regmap, VIRTUAL_REG_FOR_MISC_FUNC,   &ret23);
 
-	return sprintf(buf, "%02x  0x%04x\r\n%02x  0x%04x\r\n%02x  0x%04x\r\n"
-						"%02x  0x%04x\r\n%02x  0x%04x\r\n%02x  0x%04x\r\n"
-						"%02x  0x%04x\r\n%02x  0x%04x\r\n%02x  0x%04x\r\n"
-						"%02x  0x%04x\r\n%02x  0x%04x\r\n%02x  0x%04x\r\n"
-						"%02x  0x%04x\r\n%02x  0x%04x\r\n%02x  0x%04x\r\n"
-						"%02x  0x%04x\r\n%02x  0x%04x\r\n%02x  0x%04x\r\n"
-						"%02x  0x%04x\r\n%02x  0x%04x\r\n%02x  0x%04x\r\n"
-						"%02x  0x%04x\r\n%02x  0x%04x\r\n",
-						RT5628_RESET, ret1, RT5628_HP_OUT_VOL, ret2,
-						RT5628_STEREO_DAC_VOL, ret3, RT5628_SOFT_VOL_CTRL_TIME, ret4,
-						RT5628_OUTPUT_MIXER_CTRL, ret5, RT5628_AUDIO_DATA_CTRL, ret6,
-						RT5628_DAC_CLK_CTRL, ret7, RT5628_PWR_MANAG_ADD1, ret8,
-						RT5628_PWR_MANAG_ADD2, ret9, RT5628_PWR_MANAG_ADD3, ret10,
-						RT5628_GEN_CTRL, ret11,	RT5628_GLOBAL_CLK_CTRL, ret12,
-						RT5628_PLL_CTRL, ret13,	RT5628_GPIO_PIN_CONFIG, ret14,
-						RT5628_GPIO_OUTPUT_PIN_CTRL, ret15,	RT5628_MISC1_CTRL, ret16,
-						RT5628_MISC2_CTRL, ret17, RT5628_AVC_CTRL, ret18,
-						RT5628_HID_CTRL_INDEX, ret19, RT5628_HID_CTRL_DATA, ret20,
-						RT5628_VENDOR_ID1, ret21, RT5628_VENDOR_ID2, ret22,
-						VIRTUAL_REG_FOR_MISC_FUNC, ret23);
+	return sprintf(buf, "%02x  0x%04x\n%02x  0x%04x\n%02x  0x%04x\n"
+			"%02x  0x%04x\n%02x  0x%04x\n%02x  0x%04x\n"
+			"%02x  0x%04x\n%02x  0x%04x\n%02x  0x%04x\n"
+			"%02x  0x%04x\n%02x  0x%04x\n%02x  0x%04x\n"
+			"%02x  0x%04x\n%02x  0x%04x\n%02x  0x%04x\n"
+			"%02x  0x%04x\n%02x  0x%04x\n%02x  0x%04x\n"
+			"%02x  0x%04x\n%02x  0x%04x\n%02x  0x%04x\n"
+			"%02x  0x%04x\n%02x  0x%04x\n",
+			RT5628_RESET, ret1, RT5628_HP_OUT_VOL, ret2,
+			RT5628_STEREO_DAC_VOL, ret3, RT5628_SOFT_VOL_CTRL_TIME, ret4,
+			RT5628_OUTPUT_MIXER_CTRL, ret5, RT5628_AUDIO_DATA_CTRL, ret6,
+			RT5628_DAC_CLK_CTRL, ret7, RT5628_PWR_MANAG_ADD1, ret8,
+			RT5628_PWR_MANAG_ADD2, ret9, RT5628_PWR_MANAG_ADD3, ret10,
+			RT5628_GEN_CTRL, ret11,	RT5628_GLOBAL_CLK_CTRL, ret12,
+			RT5628_PLL_CTRL, ret13,	RT5628_GPIO_PIN_CONFIG, ret14,
+			RT5628_GPIO_OUTPUT_PIN_CTRL, ret15,	RT5628_MISC1_CTRL, ret16,
+			RT5628_MISC2_CTRL, ret17, RT5628_AVC_CTRL, ret18,
+			RT5628_HID_CTRL_INDEX, ret19, RT5628_HID_CTRL_DATA, ret20,
+			RT5628_VENDOR_ID1, ret21, RT5628_VENDOR_ID2, ret22,
+			VIRTUAL_REG_FOR_MISC_FUNC, ret23);
 }
 
-static ssize_t store_reg(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
+static ssize_t store_reg(struct device *dev, struct device_attribute *attr,
+			 const char *buf, size_t count)
 {
-	int reg, value;
-	struct rt5628_priv *rt5628 = NULL;
+	unsigned int reg, value;
+	struct i2c_client *i2c = to_i2c_client(dev);
+	struct rt5628_priv *rt5628 = i2c_get_clientdata(i2c);
 
-	if(g_rt5628 == NULL)
-	{
+	if (!rt5628)
 		return 0;
-	}
 
-	rt5628 = g_rt5628;
+	sscanf(buf, "0x%x 0x%x", &reg, &value);
 
-	sscanf(buf, "0x%x 0x%x", (int *)&reg, (int *)&value);
-
-	pr_err("Set register (0x%x) to value (0x%x)\r\n", reg, value);
+	dev_dbg(dev, "Set register (0x%x) to value (0x%x)\n", reg, value);
 
 	regmap_write(rt5628->regmap, reg, value);
 
 	return count;
 }
 
-static DEVICE_ATTR(reg , S_IWUSR | S_IRUGO, show_reg, store_reg);
-#endif
+static DEVICE_ATTR(reg, S_IWUSR | S_IRUGO, show_reg, store_reg);
+
+static struct attribute *rt5628_attrs[] = {
+	&dev_attr_reg.attr,
+	NULL,
+};
+
+ATTRIBUTE_GROUPS(rt5628);
 
 static int rt5628_i2c_probe(struct i2c_client *i2c)
 {
 	struct rt5628_priv *rt5628;
 	int ret;
-	struct dev_pin_info *pins;
-	struct pinctrl_state *pin_state;
+	struct pinctrl *pinctrl;
 
 	rt5628 = devm_kzalloc(&i2c->dev, sizeof(*rt5628),
 				GFP_KERNEL);
@@ -1026,46 +1009,27 @@ static int rt5628_i2c_probe(struct i2c_client *i2c)
 	regmap_write(rt5628->regmap, RT5628_RESET, 0);
 	regmap_write(rt5628->regmap, RT5628_PWR_MANAG_ADD3, PWR_MAIN_BIAS);
 	regmap_write(rt5628->regmap, RT5628_PWR_MANAG_ADD2, PWR_VREF);
-	pins = i2c->dev.pins;
 
-	pin_state = pinctrl_lookup_state(pins->p, "default");
-	if (IS_ERR(pin_state)) {
-		dev_err(&i2c->dev, "speaker pinctrl state not available\n");
-		return PTR_ERR(pin_state);
-	}
+	pinctrl = devm_pinctrl_get_select_default(&i2c->dev);
+	if (IS_ERR(pinctrl))
+		return dev_err_probe(&i2c->dev, PTR_ERR(pinctrl),
+				     "failed to select default pinctrl\n");
 
-	pinctrl_select_state(pins->p, pin_state);
+	rt5628->gpiod_shutdown = devm_gpiod_get_optional(&i2c->dev, "shutdown",
+							   GPIOD_OUT_HIGH);
+	if (IS_ERR(rt5628->gpiod_shutdown))
+		return dev_err_probe(&i2c->dev,
+				     PTR_ERR(rt5628->gpiod_shutdown),
+				     "failed to get shutdown gpio\n");
 
-	rt5628->shutdown_gpio = -1;
-	rt5628->shutdown_gpio = of_get_named_gpio(i2c->dev.of_node, "shutdown-gpio", 0);
-
-	if (gpio_is_valid(rt5628->shutdown_gpio)) {
-		ret = gpio_request(rt5628->shutdown_gpio, "ALC1304 SHUTDOWN");
-		if (ret != 0) {
-			dev_err(&i2c->dev, "gpio_request failed, gpio = %d\n", rt5628->shutdown_gpio);
-			return -EBUSY;
-		}
-	}
-
-	gpio_direction_output(rt5628->shutdown_gpio, 0);
-	rt5628->mute_gpio = -1;
-	rt5628->mute_gpio = of_get_named_gpio(i2c->dev.of_node, "mute-gpio", 0);
-
-	if (gpio_is_valid(rt5628->mute_gpio)) {
-		ret = gpio_request(rt5628->mute_gpio, "ALC1304 MUTE");
-		if (ret != 0) {
-			dev_err(&i2c->dev, "gpio_request failed, gpio = %d\n", rt5628->mute_gpio);
-			return -EBUSY;
-		}
-	}
-
-	gpio_direction_output(rt5628->mute_gpio, 1);
+	rt5628->gpiod_mute = devm_gpiod_get_optional(&i2c->dev, "mute",
+						       GPIOD_OUT_HIGH);
+	if (IS_ERR(rt5628->gpiod_mute))
+		return dev_err_probe(&i2c->dev,
+				     PTR_ERR(rt5628->gpiod_mute),
+				     "failed to get mute gpio\n");
 
 	rt5628->amp_status = 0;
-
-	device_create_file(&i2c->dev, &dev_attr_reg);
-
-	g_rt5628 = rt5628;
 
 	return snd_soc_register_component(&i2c->dev, &soc_component_dev_rt5628,
 			&rt5628_dai, 1);
@@ -1074,10 +1038,6 @@ static int rt5628_i2c_probe(struct i2c_client *i2c)
 static void rt5628_i2c_remove(struct i2c_client *client)
 {
 	snd_soc_unregister_component(&client->dev);
-
-	device_remove_file(&client->dev, &dev_attr_reg);
-
-	g_rt5628 = NULL;
 }
 
 static const struct of_device_id rt5628_dt_ids[] = {
@@ -1098,6 +1058,7 @@ static struct i2c_driver rt5628_i2c_driver = {
 		.name = "rt5628",
 		.owner = THIS_MODULE,
 		.of_match_table = of_match_ptr(rt5628_dt_ids),
+		.dev_groups = rt5628_groups,
 	},
 	.id_table = rt5628_i2c_id,
 	.probe = rt5628_i2c_probe,

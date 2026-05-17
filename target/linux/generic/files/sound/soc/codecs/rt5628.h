@@ -1,5 +1,5 @@
-#ifndef _RT5628_H
-#define _RT5628_H
+#ifndef __RT5628_H__
+#define __RT5628_H__
 
 #define RT5628_RESET				0X00
 #define RT5628_SPK_OUT_VOL			0X02
@@ -235,4 +235,4 @@
 #define RT5628_PLL_FR_MCLK 1
 #define RT5628_PLL_FR_BCLK 2
 
-#endif
+#endif /* __RT5628_H__ */
