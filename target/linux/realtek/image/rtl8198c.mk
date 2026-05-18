@@ -20,7 +20,11 @@ define Device/askey_ap5100w
   SOC := rtl8198c
   DEVICE_VENDOR := Askey
   DEVICE_MODEL := AP5100W
-  IMAGE_SIZE := 32768k
+  IMAGE_SIZE := 30720k
+  RTK_LOADADDR := 0x80c00000
+  RTK_BURNADDR := 0x00800000
+  KERNEL := kernel-bin | append-dtb | rt-compress | rt-loader-rtl8198c | rtk-nand-header
+  IMAGE/sysupgrade.bin := append-kernel | pad-to 128k | append-rootfs | pad-rootfs | check-size | append-metadata
   KERNEL_INITRAMFS := kernel-bin | append-dtb | rt-compress | rt-loader-rtl8198c
 endef
 

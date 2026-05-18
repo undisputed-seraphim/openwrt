@@ -179,6 +179,11 @@ define Device/kernel-lzma
 	uImage lzma
 endef
 
+define Build/rtk-nand-header
+	@python3 $(CURDIR)/rtk-nand-header.py $@ $@.new $(RTK_LOADADDR) $(RTK_BURNADDR)
+	@mv $@.new $@
+endef
+
 define Device/uimage-rt-loader
 	KERNEL/rt-loader := kernel-bin | append-dtb | rt-compress | rt-loader
 	KERNEL := $$(KERNEL/rt-loader) | uImage none

@@ -46,7 +46,7 @@
 	};
 
 	chosen {
-		bootargs = "console=ttyS0,38400";
+		bootargs = "console=ttyS0,38400 root=/dev/mtdblock3 rootfstype=squashfs rootwait";
 	};
 
 	cmp@1fbf8000 {
