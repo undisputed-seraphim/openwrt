@@ -1,0 +1,377 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * Copyright 2022 Broadcom Ltd.
+ */
+
+#include <dt-bindings/interrupt-controller/arm-gic.h>
+#include <dt-bindings/interrupt-controller/irq.h>
+
+/ {
+	compatible = "brcm,bcm63178", "brcm,bcmbca";
+	#address-cells = <1>;
+	#size-cells = <1>;
+
+	interrupt-parent = <&gic>;
+
+	cpus {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		CA7_0: cpu@0 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a7";
+			reg = <0x0>;
+			next-level-cache = <&L2_0>;
+			enable-method = "psci";
+		};
+
+		CA7_1: cpu@1 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a7";
+			reg = <0x1>;
+			next-level-cache = <&L2_0>;
+			enable-method = "psci";
+		};
+
+		CA7_2: cpu@2 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a7";
+			reg = <0x2>;
+			next-level-cache = <&L2_0>;
+			enable-method = "psci";
+		};
+
+		L2_0: l2-cache0 {
+			compatible = "cache";
+			cache-level = <2>;
+			cache-unified;
+		};
+	};
+
+	timer {
+		compatible = "arm,armv7-timer";
+		interrupts = <GIC_PPI 13 (GIC_CPU_MASK_SIMPLE(3) | IRQ_TYPE_LEVEL_LOW)>,
+			<GIC_PPI 14 (GIC_CPU_MASK_SIMPLE(3) | IRQ_TYPE_LEVEL_LOW)>,
+			<GIC_PPI 11 (GIC_CPU_MASK_SIMPLE(3) | IRQ_TYPE_LEVEL_LOW)>,
+			<GIC_PPI 10 (GIC_CPU_MASK_SIMPLE(3) | IRQ_TYPE_LEVEL_LOW)>;
+		arm,cpu-registers-not-fw-configured;
+	};
+
+	pmu: pmu {
+		compatible = "arm,cortex-a7-pmu";
+		interrupts = <GIC_SPI 7 IRQ_TYPE_LEVEL_HIGH>,
+			<GIC_SPI 8 IRQ_TYPE_LEVEL_HIGH>,
+			<GIC_SPI 9 IRQ_TYPE_LEVEL_HIGH>;
+		interrupt-affinity = <&CA7_0>, <&CA7_1>,
+			<&CA7_2>;
+	};
+
+	clocks: clocks {
+		periph_clk: periph-clk {
+			compatible = "fixed-clock";
+			#clock-cells = <0>;
+			clock-frequency = <200000000>;
+		};
+
+		uart_clk: uart-clk {
+			compatible = "fixed-factor-clock";
+			#clock-cells = <0>;
+			clocks = <&periph_clk>;
+			clock-div = <4>;
+			clock-mult = <1>;
+		};
+
+		hsspi_pll: hsspi-pll {
+			compatible = "fixed-clock";
+			#clock-cells = <0>;
+			clock-frequency = <200000000>;
+		};
+	};
+
+	psci {
+		compatible = "arm,psci-0.2";
+		method = "smc";
+	};
+
+	axi@81000000 {
+		compatible = "simple-bus";
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges = <0 0x81000000 0x8000>;
+
+		gic: interrupt-controller@1000 {
+			compatible = "arm,cortex-a7-gic";
+			#interrupt-cells = <3>;
+			interrupt-controller;
+			interrupts = <GIC_PPI 9 (GIC_CPU_MASK_SIMPLE(3) | IRQ_TYPE_LEVEL_HIGH)>;
+			reg = <0x1000 0x1000>,
+				<0x2000 0x2000>,
+				<0x4000 0x2000>,
+				<0x6000 0x2000>;
+		};
+	};
+
+	bus@ff800000 {
+		compatible = "simple-bus";
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges = <0 0xff800000 0x800000>;
+
+		hsspi: spi@1000 {
+			#address-cells = <1>;
+			#size-cells = <0>;
+			compatible = "brcm,bcm63178-hsspi", "brcm,bcmbca-hsspi-v1.0";
+			reg = <0x1000 0x600>;
+			interrupts = <GIC_SPI 36 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&hsspi_pll &hsspi_pll>;
+			clock-names = "hsspi", "pll";
+			num-cs = <8>;
+			status = "disabled";
+		};
+
+		nand_controller: nand-controller@1800 {
+			#address-cells = <1>;
+			#size-cells = <0>;
+			compatible = "brcm,nand-bcm63138", "brcm,brcmnand-v7.1", "brcm,brcmnand";
+			reg = <0x1800 0x600>, <0x2000 0x10>;
+			reg-names = "nand", "nand-int-base";
+			status = "disabled";
+
+			nandcs: nand@0 {
+				compatible = "brcm,nandcs";
+				reg = <0>;
+			};
+		};
+
+		uart0: serial@12000 {
+			compatible = "arm,pl011", "arm,primecell";
+			reg = <0x12000 0x1000>;
+			interrupts = <GIC_SPI 32 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&uart_clk>, <&uart_clk>;
+			clock-names = "uartclk", "apb_pclk";
+			status = "disabled";
+		};
+
+		watchdog: watchdog@480 {
+			compatible = "brcm,bcm6345-wdt";
+			reg = <0x480 0x10>;
+			status = "disabled";
+		};
+
+		/* GPIOs 0 .. 31 */
+		gpio0: gpio@500 {
+			compatible = "brcm,bcm6345-gpio";
+			reg = <0x500 0x04>, <0x520 0x04>;
+			reg-names = "dirout", "dat";
+			gpio-controller;
+			#gpio-cells = <2>;
+			status = "disabled";
+		};
+
+		/* GPIOs 32 .. 63 */
+		gpio1: gpio@504 {
+			compatible = "brcm,bcm6345-gpio";
+			reg = <0x504 0x04>, <0x524 0x04>;
+			reg-names = "dirout", "dat";
+			gpio-controller;
+			#gpio-cells = <2>;
+			status = "disabled";
+		};
+
+		/* GPIOs 64 .. 95 */
+		gpio2: gpio@508 {
+			compatible = "brcm,bcm6345-gpio";
+			reg = <0x508 0x04>, <0x528 0x04>;
+			reg-names = "dirout", "dat";
+			gpio-controller;
+			#gpio-cells = <2>;
+			status = "disabled";
+		};
+
+		rng@b80 {
+			compatible = "brcm,iproc-rng200";
+			reg = <0xb80 0x28>;
+			interrupts = <GIC_SPI 80 IRQ_TYPE_LEVEL_HIGH>;
+			status = "disabled";
+		};
+
+		leds: led-controller@3000 {
+			#address-cells = <1>;
+			#size-cells = <0>;
+			compatible = "brcm,bcm63138-leds";
+			reg = <0x3000 0xdc>;
+			status = "disabled";
+		};
+
+		pl081_dma: dma-controller@11000 {
+			compatible = "arm,pl081", "arm,primecell";
+			arm,primecell-periphid = <0x00041081>;
+			reg = <0x11000 0x1000>;
+			interrupts = <GIC_SPI 85 IRQ_TYPE_LEVEL_HIGH>;
+			memcpy-burst-size = <256>;
+			memcpy-bus-width = <32>;
+			clocks = <&periph_clk>;
+			clock-names = "apb_pclk";
+			#dma-cells = <2>;
+			status = "disabled";
+		};
+	};
+
+	timers: timers@ff800400 {
+		compatible = "brcm,bcm-timers";
+		reg = <0xff800400 0x48>;
+		interrupts = <GIC_SPI 11 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 12 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 13 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 14 IRQ_TYPE_LEVEL_HIGH>;
+		status = "disabled";
+	};
+
+	sotp@ff800c00 {
+		compatible = "brcm,sotp";
+		reg = <0xff800c00 0x84>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		status = "disabled";
+	};
+
+	boot_state: boot_state@ff802628 {
+		compatible = "brcm,bcmbca-bootstate-v2";
+		reg = <0xff802628 0x04>, <0xff85a03c 0x04>;
+		reg-names = "reset_reason", "reset_status";
+		status = "disabled";
+	};
+
+	switch@80400000 {
+		compatible = "brcm,bcmbca-sf2";
+		reg = <0x80400000 0x72724>,
+		      <0x80480000 0x458>,
+		      <0x804805c0 0x10>,
+		      <0x8048001c 0x04>,
+		      <0x80480024 0x04>,
+		      <0x80480018 0x04>;
+		reg-names = "switchcore-base", "switchreg-base",
+			    "switchmdio-base", "qphy-ctrl",
+			    "sphy-ctrl", "phy-test-ctrl";
+		brcm,num-gphy = <5>;
+		brcm,num-rgmii-ports = <1>;
+		status = "disabled";
+	};
+
+	systemport@80490000 {
+		compatible = "brcm,bcmbca-systemport-v2.0";
+		reg = <0x80490400 0x14>,
+		      <0x80492000 0x1060>,
+		      <0x80494000 0x650>,
+		      <0x80498000 0x10>,
+		      <0x80490000 0x10>;
+		reg-names = "systemport-rbuf-base",
+			    "systemport-rdma-base",
+			    "systemport-tdma-base",
+			    "systemport-gib-base",
+			    "systemport-umac-base",
+			    "systemport-topctrl-base";
+		status = "disabled";
+	};
+
+	mdio@804805c0 {
+		compatible = "brcm,mdio-sf2";
+		reg = <0x804805c0 0x10>,
+		      <0x80480000 0x04>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		status = "disabled";
+	};
+
+	rgmii@8048011c {
+		compatible = "brcm,rgmii3";
+		reg = <0x8048011c 0x44>,
+		      <0xff85a004 0x04>;
+		status = "disabled";
+	};
+
+	pmc: pmc@80301018 {
+		compatible = "brcm,bca-pmc-3-2";
+		reg = <0x80301018 0x5080>,
+		      <0x80320000 0x240>,
+		      <0x80300400 0x5d0>,
+		      <0x80380000 0x1000>;
+		reg-names = "pmc", "procmon", "maestro", "dtcm";
+		status = "disabled";
+	};
+
+	pcie@80040000 {
+		compatible = "brcm,bcm963xx-pcie";
+		reg = <0x80040000 0xa000>;
+		#address-cells = <3>;
+		#size-cells = <2>;
+		ranges = <0x02000000 0x00 0xc0000000
+			  0xc0000000 0x00 0x10000000>;
+		interrupt-names = "intr";
+		interrupts = <GIC_SPI 43 IRQ_TYPE_LEVEL_HIGH>;
+		#interrupt-cells = <1>;
+		interrupt-map-mask = <0 0 0 0>;
+		interrupt-map = <0 0 0 0 &gic GIC_SPI 43 IRQ_TYPE_LEVEL_HIGH>;
+		status = "disabled";
+	};
+
+	vpcie@84000000 {
+		compatible = "brcm,bcm963xx-vpcie";
+		reg = <0x84000000 0x1000000>;
+		status = "disabled";
+	};
+
+	hs_serial@ff810400 {
+		compatible = "brcm,bcm63xx-hs-uart";
+		reg = <0xff810400 0x1e0>;
+		reg-names = "hs_uart_base";
+		interrupts = <GIC_SPI 34 IRQ_TYPE_LEVEL_HIGH>;
+		clocks = <&periph_clk>;
+		status = "disabled";
+	};
+
+	sdhci@ff810000 {
+		compatible = "brcm,bcm63xx-sdhci";
+		reg = <0xff810000 0x100>,
+		      <0xff810100 0x100>,
+		      <0xff810200 0x40>,
+		      <0xff810300 0x100>;
+		reg-names = "sdhci-base", "sdhci-topcfg",
+			    "sdhci-boot", "sdhci-ahbss-ctrl";
+		interrupts = <GIC_SPI 86 IRQ_TYPE_LEVEL_HIGH>;
+		bus-width = <8>;
+		no-1-8-v;
+		status = "disabled";
+	};
+
+	i2s@ff802080 {
+		compatible = "brcm,bcm63xx-i2s";
+		reg = <0xff802080 0x21>;
+		interrupts = <GIC_SPI 78 IRQ_TYPE_LEVEL_HIGH>;
+		status = "disabled";
+	};
+
+	pcm@ff860c00 {
+		compatible = "brcm,bcm63xx-pcm";
+		reg = <0xff860c00 0x1060>;
+		interrupts = <GIC_SPI 116 IRQ_TYPE_LEVEL_HIGH>,
+			     <GIC_SPI 117 IRQ_TYPE_LEVEL_HIGH>;
+		status = "disabled";
+	};
+
+	ephyled@804800c4 {
+		compatible = "brcm,ephy-led";
+		reg = <0x804800c4 0x04>,
+		      <0x80480040 0x04>,
+		      <0x8048004c 0x04>,
+		      <0x80480058 0x04>,
+		      <0x80480064 0x04>,
+		      <0x80480070 0x04>,
+		      <0x8048007c 0x04>,
+		      <0x804800a0 0x04>;
+		reg-names = "aggregate_ctrl", "led_reg_0",
+			    "led_reg_1", "led_reg_2", "led_reg_3",
+			    "led_reg_4", "led_reg_5", "led_reg_8";
+		status = "disabled";
+	};
+};
