@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: GPL-2.0-or-later OR BSD-2-Clause
+
+rootfs_prepare() {
+	if ubinfo /dev/ubi0 -N rootfs_data > /dev/null 2>&1; then
+		echo "rootfs_data UBI volume already exists"
+	else
+		echo "Creating rootfs_data UBI volume"
+		ubimkvol /dev/ubi0 -N rootfs_data -m
+	fi
+}
+
+boot_hook_add preinit_main rootfs_prepare

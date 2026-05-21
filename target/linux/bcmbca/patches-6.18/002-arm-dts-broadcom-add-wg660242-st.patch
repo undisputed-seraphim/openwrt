@@ -1,0 +1,13 @@
+From: OpenWrt Contributors
+Subject: [PATCH] ARM: dts: broadcom: add Arcadyan WG660242-ST to Makefile
+
+--- a/arch/arm/boot/dts/broadcom/Makefile
++++ b/arch/arm/boot/dts/broadcom/Makefile
+@@ -43,6 +43,7 @@ dtb-$(CONFIG_ARCH_BCMBCA) += \
+ 	bcm963138dvt.dtb \
+ 	bcm963148.dtb \
+ 	bcm963178.dtb \
++	bcm6750-arcadyan-wg660242-st.dtb \
+ 	bcm96756.dtb \
+ 	bcm96846.dtb \
+ 	bcm96855.dtb \
