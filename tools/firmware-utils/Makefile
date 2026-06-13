@@ -10,10 +10,10 @@ PKG_NAME:=firmware-utils
 PKG_RELEASE:=1
 
 PKG_SOURCE_PROTO:=git
-PKG_SOURCE_URL=$(PROJECT_GIT)/project/firmware-utils.git
-PKG_SOURCE_DATE:=2026-07-30
-PKG_SOURCE_VERSION:=c9da48613b5d7b892d5a3871dc6332487360de4a
-PKG_MIRROR_HASH:=50dff83ef53cd81b06cf30117f4cbcbf0c5176d631efbe4fe466007c8dee510f
+PKG_SOURCE_URL=https://github.com/undisputed-seraphim/firmware-utils.git
+PKG_SOURCE_DATE:=2026-08-29
+PKG_SOURCE_VERSION:=7c5076a58e005dc5fc974e6b5e7b43e6a28ba773
+PKG_MIRROR_HASH:=skip
 
 include $(INCLUDE_DIR)/host-build.mk
 include $(INCLUDE_DIR)/cmake.mk

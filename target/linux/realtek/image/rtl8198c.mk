@@ -20,9 +20,13 @@ define Device/askey_ap5100w
   SOC := rtl8198c
   DEVICE_VENDOR := Askey
   DEVICE_MODEL := AP5100W
-  IMAGE_SIZE := 32768k
+  IMAGE_SIZE := 24576k
   DEVICE_PACKAGES += kmod-rtw88-8814ae
+  KERNEL := kernel-bin | append-dtb | realtek-cvimg 0x80c00000
   KERNEL_INITRAMFS := kernel-bin | append-dtb | rt-compress | rt-loader-rtl8198c
+  IMAGES := sysupgrade.tar
+  IMAGE/sysupgrade.tar := sysupgrade-tar | append-metadata
+  SUPPORTED_DEVICES += askey,ap5100w
 endef
 
 TARGET_DEVICES += askey_ap5100w
