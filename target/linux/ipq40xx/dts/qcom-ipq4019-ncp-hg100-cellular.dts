@@ -115,7 +115,7 @@
 };
 
 &tlmm {
-	pinctrl-0 = <&bt_pins>, <&aud_pins>, <&mcu_pins>;
+	pinctrl-0 = <&bt_pins>, <&aud_pins>;
 	pinctrl-names = "default";
 
 	/*
@@ -297,20 +297,6 @@
 		};
 	};
 
-	mcu_pins: mcu_pinmux {
-		mux_boot {
-			pins = "gpio38";
-			function = "gpio";
-			output-low;
-		};
-
-		mux_reset {
-			pins = "gpio5";
-			function = "gpio";
-			output-high;
-		};
-	};
-
 	audio_gpio_pins: audio_gpio_pinmux {
 		mux_1 {
 			pins = "gpio53";
@@ -384,13 +370,19 @@
 
 &blsp1_i2c4 {
 	/*
-	 * There is no driver for the following devices:
+	 * There is no driver for the following device:
 	 * - CY8C4014LQI@14	: Touch-Sensor for buttons on top
-	 * - MINI54FDE@15	: MCU for Fan/RGB LED/Thermal control
 	 */
 	pinctrl-0 = <&i2c_1_pins>;
 	pinctrl-names = "default";
 	status = "okay";
+
+	mcu@15 {
+		compatible = "nuvoton,mini54fde";
+		reg = <0x15>;
+		boot-gpios = <&tlmm 38 GPIO_ACTIVE_HIGH>;
+		reset-gpios = <&tlmm 5 GPIO_ACTIVE_HIGH>;
+	};
 
 	led-controller@32 {
 		compatible = "ti,lp55231";
