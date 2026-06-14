@@ -1,0 +1,20 @@
+--- a/drivers/misc/Kconfig
++++ b/drivers/misc/Kconfig
+@@ -629,3 +629,12 @@ source "drivers/misc/mchp_pci1xxxx/Kconfig"
+ source "drivers/misc/keba/Kconfig"
++
++config MCU_I2C
++	tristate "MCU I2C driver (MINI54FDE)"
++	depends on I2C
++	help
++	  I2C driver for the Nuvoton MINI54FDE MCU used for
++	  fan control, RGB LED control, and temperature monitoring on
++	  the Sony NCP-HG100.
++
+ endmenu
+
+--- a/drivers/misc/Makefile
++++ b/drivers/misc/Makefile
+@@ -79,3 +79,4 @@ obj-$(CONFIG_MARVELL_CN10K_DPI)	+= mrvl_cn10k_dpi.o
+ obj-y				+= keba/
++obj-$(CONFIG_MCU_I2C)		+= mcu-i2c.o
