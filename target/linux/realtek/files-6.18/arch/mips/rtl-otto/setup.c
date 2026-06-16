@@ -7,10 +7,29 @@
 
 #include <asm/bootinfo.h>
 #include <asm/prom.h>
+#include <asm/reboot.h>
 #include <asm/time.h>
 #include <linux/clk.h>
+#include <linux/io.h>
 #include <linux/irqchip.h>
 #include <linux/of_clk.h>
+
+#define RTL8198C_GIMR    0xB8003000
+#define RTL8198C_WDTCNR  0xB800311C
+
+static void rtl8198c_restart(char *command)
+{
+	__raw_writel(0, (volatile void *)RTL8198C_GIMR);
+	local_irq_disable();
+	__raw_writel(0, (volatile void *)RTL8198C_WDTCNR);
+	while (1);
+}
+
+static void rtl8198c_halt(void)
+{
+	local_irq_disable();
+	while (1);
+}
 
 void __init plat_mem_setup(void)
 {
@@ -24,6 +43,10 @@ void __init plat_mem_setup(void)
 
 	/* Load the devicetree to let the memory appear. */
 	__dt_setup_arch(dtb);
+
+	_machine_restart = rtl8198c_restart;
+	_machine_halt = rtl8198c_halt;
+	pm_power_off = rtl8198c_halt;
 }
 
 static void plat_time_init_fallback(void)
