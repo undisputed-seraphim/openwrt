@@ -1,0 +1,30 @@
+--- a/drivers/watchdog/Kconfig
++++ b/drivers/watchdog/Kconfig
+@@ -1076,6 +1076,17 @@ config REALTEK_OTTO_WDT
+ 
+ 	  When built as a module this will be called realtek_otto_wdt.
+ 
++config RTL819X_WDT
++	tristate "Realtek RTL819X watchdog support"
++	depends on SOC_RTL8198C || COMPILE_TEST
++	select WATCHDOG_CORE
++	default SOC_RTL8198C
++	help
++	  Say Y here to include support for the on-chip timer-block
++	  watchdog on Realtek RTL8198C SoCs.
++
++	  When built as a module this will be called rtl819x_wdt.
++
+ config SPRD_WATCHDOG
+ 	tristate "Spreadtrum watchdog support"
+ 	depends on ARCH_SPRD || COMPILE_TEST
+--- a/drivers/watchdog/Makefile
++++ b/drivers/watchdog/Makefile
+@@ -185,6 +185,7 @@ obj-$(CONFIG_MT7621_WDT) += mt7621_wdt.o
+ obj-$(CONFIG_PIC32_WDT) += pic32-wdt.o
+ obj-$(CONFIG_PIC32_DMT) += pic32-dmt.o
+ obj-$(CONFIG_REALTEK_OTTO_WDT) += realtek_otto_wdt.o
++obj-$(CONFIG_RTL819X_WDT) += rtl819x_wdt.o
+ 
+ # PARISC Architecture
+ 
