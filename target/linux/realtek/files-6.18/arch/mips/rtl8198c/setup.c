@@ -15,6 +15,7 @@
 #include <linux/clk-provider.h>
 #include <linux/clk.h>
 #include <linux/delay.h>
+#include <linux/irqflags.h>
 #include <linux/of_fdt.h>
 #include <linux/irqchip.h>
 
@@ -23,11 +24,36 @@
 #include <asm/bootinfo.h>
 #include <asm/time.h>
 #include <asm/prom.h>
+#include <asm/reboot.h>
 #include <asm/smp-ops.h>
 
 #include "mach-rtl819x.h"
 
 extern struct rtl83xx_soc_info soc_info;
+
+#define RTL8198C_GIMR	0xB8003000
+#define RTL8198C_CDBR	0xB8003118
+#define RTL8198C_WDTCNR	0xB800311C
+
+/*
+ * Fallback machine restart for when the rtl819x watchdog driver is not
+ * bound.  The primary reboot path goes through the watchdog restart
+ * notifier; this handler triggers the same hardware mechanism (write 0
+ * to the watchdog timer counter) directly, matching the BSP's
+ * bsp_machine_restart() in arch/rlx/soc-rtl819xd/setup.c.
+ *
+ * Return rather than spin so machine_restart() still reaches
+ * do_kernel_restart() and reports "Reboot failed" if the write did
+ * not reset the hardware.
+ */
+static void rtl8198c_restart(char *command)
+{
+	__raw_writel(0, (volatile void *)RTL8198C_GIMR);
+	local_irq_disable();
+	/* Fastest watchdog tick: 2^15 cycles of the undivided LX clock. */
+	__raw_writel(1 << 16, (volatile void *)RTL8198C_CDBR);
+	__raw_writel(0, (volatile void *)RTL8198C_WDTCNR);
+}
 
 void __init plat_mem_setup(void)
 {
@@ -44,6 +70,8 @@ void __init plat_mem_setup(void)
 	 * parsed resulting in our memory appearing
 	 */
 	__dt_setup_arch(dtb);
+
+	_machine_restart = rtl8198c_restart;
 }
 
 static void plat_time_init_fallback(void)
