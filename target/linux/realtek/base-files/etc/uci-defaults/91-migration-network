@@ -1,0 +1,15 @@
+#!/bin/sh
+. /lib/functions/uci-defaults.sh
+
+board_config_update
+
+uci -q delete network.migration 2>/dev/null
+uci set network.migration=interface
+uci set network.migration.device='eth0'
+uci set network.migration.proto='static'
+uci set network.migration.ipaddr='192.168.2.2'
+uci set network.migration.netmask='255.255.255.0'
+uci commit network
+
+board_config_flush
+exit 0

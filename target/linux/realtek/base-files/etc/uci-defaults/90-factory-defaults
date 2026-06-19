@@ -1,0 +1,86 @@
+#!/bin/sh
+#
+# AP5100W factory defaults — read per-device calibration from the
+# preserved vendor "factory" MTD partition.
+#
+# The factory partition contains:
+#   +0x0000  6 bytes   MAC address
+#   Next 50+ bytes     WiFi regulatory data + calibration (TBD)
+#
+# Run once on first boot.  Creates /etc/uci-defaults/.done marker.
+#
+
+. /lib/functions.sh
+. /lib/functions/uci-defaults.sh
+
+board_config_update
+
+factory_mtd=$(find_mtd_index factory)
+if [ -z "$factory_mtd" ]; then
+	echo "askey_ap5100w: factory partition not found — using defaults"
+	board_config_flush
+	exit 0
+fi
+
+factory_dev="/dev/mtd${factory_mtd}"
+
+# --- MAC address ---
+macaddr=$(dd if="$factory_dev" bs=1 count=6 skip=0 2>/dev/null | hexdump -ve '1/1 "%.2x"')
+if [ -n "$macaddr" ] && [ "$macaddr" != "ffffffffffff" ]; then
+	macaddr=$(echo "$macaddr" | sed 's/../&:/g;s/:$//')
+	ucidef_set_network_device_mac eth0 "$macaddr"
+	ucidef_set_interface_macaddr lan "$macaddr"
+	ucidef_set_bridge_mac "$macaddr"
+	ucidef_set_label_macaddr "$macaddr"
+fi
+
+# --- WiFi defaults (TODO: determine exact offsets from factory image) ---
+# The factory partition likely contains SSID and WPA passphrase
+# at vendor-specific offsets.  For now, generate random defaults
+# and apply FCC-compliant regulatory domain.
+
+# Generate a unique default SSID from the MAC (or random if no MAC read)
+ssid_suffix=$(echo "${macaddr:-$(hexdump -n3 -ve '1/1 "%.2x"' /dev/urandom)}" | tr -d ':')
+ssid="AP5100W-${ssid_suffix}"
+
+# Generate a random WPA passphrase (first boot only)
+wpa_key=$(dd if=/dev/urandom bs=12 count=1 2>/dev/null | base64 | head -c 16)
+
+# --- Apply wireless config ---
+# The 8814AE is dual-band (phy0 = 5GHz, phy1 = 2.4GHz or vice versa)
+# Apply to both radios
+
+for phy in /sys/class/ieee80211/phy*; do
+	[ -d "$phy" ] || continue
+	phy=$(basename "$phy")
+	radio=$(uci add wireless wifi-device)
+	uci set wireless."$radio".type='mac80211'
+	uci set wireless."$radio".phy="$phy"
+	uci set wireless."$radio".channel='auto'
+	uci set wireless."$radio".country='US'
+
+	iface=$(uci add wireless wifi-iface)
+	uci set wireless."$iface".device="$radio"
+	uci set wireless."$iface".network='lan'
+	uci set wireless."$iface".mode='ap'
+	uci set wireless."$iface".ssid="$ssid"
+	uci set wireless."$iface".encryption='psk2'
+	uci set wireless."$iface".key="$wpa_key"
+done
+
+uci commit wireless
+
+# --- Network ---
+uci set network.lan.device='eth0'
+uci set network.lan.proto='dhcp'
+
+uci commit network
+
+# --- System ---
+uci set system.@system[0].hostname='AP5100W'
+
+uci commit system
+
+board_config_flush
+
+exit 0

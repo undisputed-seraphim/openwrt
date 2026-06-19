@@ -1,20 +1,8 @@
 PART_NAME=firmware
 REQUIRE_IMAGE_METADATA=1
 
-RAMFS_COPY_BIN='fw_printenv fw_setenv nandwrite'
+RAMFS_COPY_BIN='fw_printenv fw_setenv'
 RAMFS_COPY_DATA='/etc/fw_env.config /var/lock/fw_printenv.lock'
-
-askey_ap5100w_do_upgrade() {
-	local tar_file="$1"
-	local board_dir
-
-	sync
-	board_dir=$(tar tf "$tar_file" | grep -m 1 '^sysupgrade-.*/$')
-	board_dir="${board_dir%/}"
-
-	tar xOf "$tar_file" "$board_dir/kernel" | mtd write - linux
-	tar xOf "$tar_file" "$board_dir/root" | mtd write - rootfs
-}
 
 # The TP-Link bootloader gets its flash layout from "bootargs".
 # Use this to our advantage, and:
@@ -57,9 +45,6 @@ platform_do_upgrade() {
 	linksys,lgs328mpc-v2|\
 	linksys,lgs352c)
 		nand_do_upgrade "$1"
-		;;
-	askey,ap5100w)
-		askey_ap5100w_do_upgrade "$1"
 		;;
 	zyxel,xgs1930-28hp|\
 	zyxel,xmg1915-10e|\

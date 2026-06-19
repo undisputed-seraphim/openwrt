@@ -40,11 +40,21 @@
 };
 
 /*
- * NAND flash (Winbond W29N01HV, 128 MiB) detected by old BSP.
- * Partitions from old kernel cmdline:
- *   mtdparts=rtk_nand:5m@0x0(boot),3m@0x500000(setting),
- *   6m@0x800000(linux),24m@0xe00000(rootfs),
- *   6m@0x2600000(linux2),24m@0x2C00000(rootfs2),
+ * NAND flash (Winbond W29N01HV, 128 MiB).
+ *
+ * U-Boot layout — all block-aligned (block = 128 KiB):
+ *   Offset      Size     Label        Purpose
+ *   0x000000    2 MiB    u-boot       SPL + U-Boot proper
+ *   0x200000    256 KiB  u-boot-env   Redundant environment
+ *   0x240000    3 MiB    factory      Preserved vendor cal (read-only)
+ *   0x540000   48 MiB    firmware     Primary OS (kernel + squashfs)
+ *   0x354000   30 MiB    rescue       LZMA recovery image (read-only)
+ *   0x534000   ~38 MiB   ubi          UBIFS persistent overlay
+ *   0x7A0000    2 MiB    nvdata       Vendor NVRAM
+ *
+ * Old vendor layout (for reference):
+ *   5m@0x0(boot),3m@0x500000(setting),6m@0x800000(linux),
+ *   24m@0xe00000(rootfs),6m@0x2600000(linux2),24m@0x2C00000(rootfs2),
  *   38m@0x4400000(data),2m@0x6A00000(nvdata)
  */
 
@@ -60,44 +70,42 @@
 			#size-cells = <1>;
 
 			partition@0 {
-				label = "boot";
-				reg = <0x0000000 0x500000>;
+				label = "u-boot";
+				reg = <0x0000000 0x200000>;
 				read-only;
 			};
 
-			partition@500000 {
-				label = "setting";
-				reg = <0x0500000 0x300000>;
+			partition@200000 {
+				label = "u-boot-env";
+				reg = <0x0200000 0x40000>;
+				read-only;
 			};
 
-			partition@800000 {
-				label = "linux";
-				reg = <0x0800000 0x600000>;
+			partition@240000 {
+				label = "factory";
+				reg = <0x0240000 0x300000>;
+				read-only;
 			};
 
-			partition@e00000 {
-				label = "rootfs";
-				reg = <0x0e00000 0x1800000>;
+			partition@540000 {
+				label = "firmware";
+				reg = <0x0540000 0x3000000>;
 			};
 
-			partition@2600000 {
-				label = "linux2";
-				reg = <0x2600000 0x600000>;
+			partition@3540000 {
+				label = "rescue";
+				reg = <0x3540000 0x1e00000>;
+				read-only;
 			};
 
-			partition@2c00000 {
-				label = "rootfs2";
-				reg = <0x2c00000 0x1800000>;
+			partition@5340000 {
+				label = "ubi";
+				reg = <0x5340000 0x26c0000>;
 			};
 
-			partition@4400000 {
-				label = "data";
-				reg = <0x4400000 0x2600000>;
-			};
-
-			partition@6a00000 {
+			partition@7a00000 {
 				label = "nvdata";
-				reg = <0x6a00000 0x200000>;
+				reg = <0x7a00000 0x200000>;
 			};
 		};
 	};

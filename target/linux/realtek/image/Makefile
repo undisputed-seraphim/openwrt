@@ -46,6 +46,10 @@ define Build/realtek-cvimg
 	mv "$@.new" "$@"
 endef
 
+define Build/append-uboot-spl
+	dd if=$(UBOOT_SPL_PATH) >> $@
+endef
+
 define Build/rt-loader-no-uimage
         $(MAKE) all clean -C rt-loader CROSS_COMPILE="$(TARGET_CROSS)" \
                 KERNEL_ADDR="$(KERNEL_LOADADDR)" KERNEL_IMG_IN="$@" \
