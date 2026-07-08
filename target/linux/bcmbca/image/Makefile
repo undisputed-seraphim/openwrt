@@ -22,7 +22,7 @@ define Device/arcadyan_wg660242-st
   DEVICE_VENDOR := Arcadyan
   DEVICE_MODEL := WG660242-ST
   DEVICE_DTS := broadcom/bcm6750-arcadyan-wg660242-st
-  DEVICE_PACKAGES := kmod-usb-ohci kmod-usb2 kmod-usb3
+  DEVICE_PACKAGES := kmod-usb-ohci kmod-usb2 kmod-usb3 kmod-broadcom-wl
 endef
 TARGET_DEVICES += arcadyan_wg660242-st
 

@@ -1,0 +1,1 @@
+/* Minimal stub for dhdioctl.h */
