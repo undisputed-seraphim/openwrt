@@ -149,21 +149,31 @@
 		};
 
 		gpio0: pio-controller@3500 {
-			compatible = "realtek,rtl8198c-gpio";
+			compatible = "realtek,rtl8198c-gpio", "realtek,otto-gpio";
 			reg = <0x3500 0x1c>;
 
 			gpio-controller;
 			#gpio-cells = <2>;
 			ngpios = <32>;
+
+			interrupt-controller;
+			#interrupt-cells = <2>;
+			interrupt-parent = <&gic>;
+			interrupts = <GIC_SHARED 26 IRQ_TYPE_LEVEL_HIGH>;
 		};
 
 		gpio1: pio-controller@351c {
-			compatible = "realtek,rtl8198c-gpio";
+			compatible = "realtek,rtl8198c-gpio", "realtek,otto-gpio";
 			reg = <0x351c 0x1c>;
 
 			gpio-controller;
 			#gpio-cells = <2>;
 			ngpios = <32>;
+
+			interrupt-controller;
+			#interrupt-cells = <2>;
+			interrupt-parent = <&gic>;
+			interrupts = <GIC_SHARED 27 IRQ_TYPE_LEVEL_HIGH>;
 		};
 	};
 
