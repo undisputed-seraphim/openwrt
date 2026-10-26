@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 
 define Device/f-secure_sense
-  LOADADDR := 0x80000000
+  LOADADDR := 0x80100000
   LOADER_PLATFORM := rtl8198c
   LOADER_TYPE := bin
   LZMA_TEXT_START := 0x84000000
@@ -16,7 +16,7 @@ endef
 
 
 define Device/askey_ap5100w
-  LOADADDR := 0x80000000
+  LOADADDR := 0x80100000
   SOC := rtl8198c
   DEVICE_VENDOR := Askey
   DEVICE_MODEL := AP5100W
