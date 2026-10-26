@@ -1,13 +1,3 @@
---- a/arch/mips/Kconfig
-+++ b/arch/mips/Kconfig
-@@ -746,6 +746,7 @@ config RTL8198C
- 	select CPU_SUPPORTS_CPUFREQ
- 	select MIPS_EXTERNAL_TIMER
- 	select HAVE_PCI
-+	select NET_RTL8198C
- 
- config SGI_IP22
- 	bool "SGI IP22 (Indy/Indigo2)"
 --- a/drivers/net/Kconfig
 +++ b/drivers/net/Kconfig
 @@ -3,6 +3,14 @@
