@@ -1,11 +1,16 @@
 #!/bin/sh
 # swdebug.sh — RTL8198C switch core / GPHY / descriptor debug tool
-# Uses busybox devmem (physical addresses, NOT KSEG1)
+# Register access goes through the driver's debugfs "reg" file, which
+# accepts physical addresses (and KSEG1 aliases).  No /dev/mem needed.
 set -e
 
-# ── physical address helpers ──
-# KSEG1 = physical + 0xA0000000.  devmem uses physical addresses.
-# Base registers (physical addresses from KSEG1 - 0xA0000000)
+IFACE=${IFACE:-eth4}   # port netdev; the test cable is in port 4
+DBG=/sys/kernel/debug/rtl8198c-eth/switch
+REG=$DBG/reg
+
+# ── address helpers ──
+# Physical addresses are passed straight through; the driver translates
+# them to the KSEG1 alias itself.
 CPU_IF_BASE=0x18010000
 SWCORE_BASE=0x1B800000
 SWTBL_BASE=0x1B000000
@@ -48,25 +53,26 @@ TACR=0x1B804D00
 TASR=0x1B804D04
 TAA=0x1B804D08
 TCR0=0x1B804D20
-# VLAN table base (type 5 in bootloader layout, = 0xBB050000 phys 0x1B050000)
-VLAN_BASE=0x1B050000
+# VLAN table (type 6, indexed by VID) — must match the BSP/bootloader enum
+VLAN_BASE=0x1B060000
 # L2 table base (type 0) — TAA requires KSEG1 (0xBB000000), NOT physical!
 # Physical base used for direct memory reads.
 L2_BASE=0x1B000000
 
-rd()  { devmem "$1" 32; }
-wr()  { devmem "$1" 32 "$2" >/dev/null; }
+rd()  { echo "$1" > "$REG"; awk '{print $2}' "$REG"; }
+wr()  { echo "$1=$2" > "$REG"; }
 phys() { echo $(($1 - 0xA0000000)); }  # KSEG1 → physical, kept for ref
 
 # ── MDIO helpers ──
+mdio_busy() { [ $(($(rd $MDCIOSR) & 0x80000000)) -ne 0 ]; }
 mdio_read() { # phy reg
 	wr $MDCIOCR $(($1 << 24 | $2 << 16))
-	while [ $(rd $MDCIOSR) -ge 2147483648 ]; do :; done
+	while mdio_busy; do :; done
 	rd $MDCIOSR
 }
 mdio_write() { # phy reg val
 	wr $MDCIOCR $((0x80000000 | $1 << 24 | $2 << 16 | $3))
-	while [ $(rd $MDCIOSR) -ge 2147483648 ]; do :; done
+	while mdio_busy; do :; done
 }
 
 # ── TACI helpers ──
@@ -151,12 +157,25 @@ cmd_vlan_read() {
 	for i in 0 1 2; do
 		printf "  word %d: 0x%08X\n" $i $(rd $(($addr + $i * 4)))
 	done
+	local w0=$(rd $addr)
+	printf "  member=0x%02X untag=0x%02X cpu=%s fid=%d\n" \
+		$((w0 & 0x3F)) $(((w0 >> 9) & 0x3F)) \
+		$(( (w0 & 0x8000) ? 1 : 0 )) $(((w0 >> 18) & 3))
+}
+
+# Write a VLAN entry: swdebug.sh vlan_write VID WORD0
+# WORD0 layout: member[5:0], extMember[8:6], untag[14:9],
+# extUntag[17:15], fid[19:18].  Only word 0 is used on 8198C.
+cmd_vlan_write() {
+	local vid=$1 w0=$2
+	taci_write 6 "$vid" "$w0 0 0 0 0 0 0 0" 1
+	cmd_vlan_read "$vid"
 }
 cmd_vlan_set() {
 	# Create VLAN: swdebug.sh vlan_set VID
 	local vid=${1:-1}
 	echo "Creating VLAN VID=$vid (all ports 0-5 + CPU, untagged)..."
-	taci_write 5 $vid "0xFE7F 0 0 0 0 0 0 0" 1
+	taci_write 6 $vid "0xFE7F 0 0 0 0 0 0 0" 1
 	cmd_vlan_read $vid
 }
 cmd_l2_read() {
@@ -181,13 +200,13 @@ cmd_l2_write_force() {
 	cmd_l2_read $row $col
 }
 cmd_link() {
-	ifconfig eth0 2>/dev/null | grep -E "Link|RX|TX"
+	ip -s link show "$IFACE" 2>/dev/null || ifconfig "$IFACE" 2>/dev/null
 }
 cmd_irq() {
 	grep rtl8198c-eth /proc/interrupts
 }
 cmd_arping() {
-	arping -I eth0 -c 3 "$@"
+	arping -I "$IFACE" -c 3 "$@"
 }
 cmd_help() {
 	cat <<'EOF'
@@ -199,11 +218,14 @@ Commands:
   pcrp               Dump per-port control registers (PCRP0-6)
   vlan_read [vid]    Read VLAN table entry (default vid=1)
   vlan_set [vid]     Create VLAN entry with all ports+CPU
+  vlan_write <vid> <word0>  Write a VLAN entry word 0 (member/untag/fid)
   l2_read [row] [col]  Read L2 table entry (default row=0 col=0)
   l2_write_force <row> <col> <w0..w7>  Force-write L2 entry
   link               Show eth0 link stats
   irq                Show interrupt count
   arping <ip>        Send ARP request from eth0
+  rd <addr>          Read one 32-bit register
+  wr <addr> <value>  Write one 32-bit register
 EOF
 }
 
@@ -214,11 +236,14 @@ case "${1:-help}" in
 	pcrp)      cmd_pcrp ;;
 	vlan_read) cmd_vlan_read "$2" ;;
 	vlan_set)  cmd_vlan_set "$2" ;;
+	vlan_write) cmd_vlan_write "$2" "$3" ;;
 	l2_read)   cmd_l2_read "$2" "$3" ;;
 	l2_write_force) shift; cmd_l2_write_force "$@" ;;
 	link)      cmd_link ;;
 	irq)       cmd_irq ;;
 	arping)    shift; cmd_arping "$@" ;;
+	rd)        rd "$2" ;;
+	wr)        wr "$2" "$3" ;;
 	help|--help|-h) cmd_help ;;
 	*)         cmd_help ;;
 esac

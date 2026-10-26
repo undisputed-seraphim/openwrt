@@ -6,9 +6,11 @@
 #   swtest.sh --mac-drop MAC IP  Filter test (needs cable + host)
 
 # ── helpers (subset of swdebug.sh, kept self-contained) ──
-phys()  { echo $(($1 - 0xA0000000)); }
-wr()    { devmem $(phys "$1") 32 "$2" 2>/dev/null; }
-rd()    { devmem $(phys "$1") 32 2>/dev/null; }
+IFACE=${IFACE:-eth4}   # port netdev; the test cable is in port 4
+DBG=/sys/kernel/debug/rtl8198c-eth/switch
+REG=$DBG/reg
+wr()    { echo "$1=$2" > "$REG"; }
+rd()    { echo "$1" > "$REG"; awk '{print $2}' "$REG"; }
 
 MDCIOCR=0xBB804004
 MDCIOSR=0xBB804008
@@ -18,6 +20,9 @@ MDIO_WRITE=0x80000000
 mdio_read() {
 	local phy=$1 reg=$2
 	wr $MDCIOCR $(( (phy << 24) | (reg << 16) ))
+	# The MDIO transaction takes about a millisecond; MDCIOSR reads back
+	# the previous result (with BUSY set) until it completes.
+	while [ $(( $(rd $MDCIOSR) & MDIO_BUSY )) -ne 0 ]; do :; done
 	local v=$(rd $MDCIOSR)
 	echo $((v & 0xffff))
 }
@@ -80,19 +85,23 @@ phy_link_up() { check_bit $(mdio_read "$1" 1) 2; }
 # ── quick tests ──
 test_ffcr() {
 	local v=$(rd $FFCR)
-	if [ "$v" = "0x00000400" ]; then
-		pass "FFCR=$v (both TOCPU bits clear)"
+	# Only the policy matters: unknown unicast/multicast must not be
+	# trapped to the CPU by FFCR (bits 1:0), because VLAN membership is
+	# what delivers them.  The other bits come from switch_hard_reset()
+	# and are not fixed values.
+	if [ $(( v & 3 )) -eq 0 ]; then
+		pass "FFCR=$v (TOCPU bits clear)"
 	else
-		fail "FFCR=$v (expected 0x00000400)"
+		fail "FFCR=$v (TOCPU bits 1:0 must be clear)"
 	fi
 }
 
 test_maccr() {
 	local v=$(rd $MACCR)
-	if check_bit "$v" 14; then
-		pass "MACCR=$v (flow control BIT(14) set)"
+	if check_bit "$v" 24; then
+		pass "MACCR=$v (INFINITE_PAUSE_FRAMES bit 24 set)"
 	else
-		fail "MACCR=$v (flow control BIT(14) NOT set)"
+		fail "MACCR=$v (INFINITE_PAUSE_FRAMES bit 24 NOT set)"
 	fi
 }
 
@@ -115,30 +124,41 @@ test_gdsr0() {
 }
 
 test_phy_link() {
-	local ok=0 bad=0
+	local ok=0 down=""
 	for id in 3 4; do
 		if phy_link_up $id; then
 			ok=$((ok + 1))
 		else
-			fail "PHY $id link DOWN"
-			bad=$((bad + 1))
+			down="$down $id"
 		fi
 	done
-	[ $ok -gt 0 ] && pass "PHY link: $ok ports up (ports 3,4)"
+	if [ $ok -gt 0 ]; then
+		pass "PHY link: $ok/2 ports up (ports 3,4)${down:+, down:$down}"
+	else
+		fail "PHY link: no port up (ports 3,4)"
+	fi
 }
 
 test_gigabit_link() {
-	local ok=0
+	local ok=0 up=0
 	for id in 3 4; do
 		local gstatus=$(mdio_read "$id" 10 2>/dev/null)
-		if check_bit "$gstatus" 10; then
+		# 1000BASE-T status: bit 13 = local receiver OK (link up at
+		# 1G), bit 12 = remote receiver OK, bit 11 = partner is
+		# 1000BASE-T FD capable.  bit 10 is only "partner supports
+		# 1000BASE-T half duplex" and says nothing about the link.
+		if check_bit "$gstatus" 13; then
 			ok=$((ok + 1))
+		elif check_bit "$gstatus" 11; then
+			up=$((up + 1))
 		fi
 	done
 	if [ "$ok" -ge 1 ]; then
-		pass "Gigabit link: $ok ports at 1000M (reg 10 bit 10 set)"
-	elif [ "$ok" -eq 0 ]; then
-		warn "Gigabit link: 0 ports at 1000M (cable or host adapter?)"
+		pass "Gigabit link: $ok ports at 1000M (reg 10 bit 13 set)"
+	elif [ "$up" -ge 1 ]; then
+		warn "Gigabit link: partner advertises 1000M but the link is not at 1G"
+	else
+		warn "Gigabit link: link is at 10/100 (partner, cable or adapter)"
 	fi
 }
 
@@ -182,43 +202,85 @@ test_ping() {
 
 # ── full-mode extras ──
 test_fdb() {
-	# Broadcast at entry 0
-	local w0=$(rd 0xBB000000) w1=$(rd 0xBB000004)
+	# Per-VLAN MAC tables: port 0 is the WAN (fid 0, salt 0x00), the LAN
+	# ports use fid 1 (salt 0x0f).  The row carries the salt.
+	local port=${IFACE#eth}
+	local salt=0x00
+	[ "$port" != "0" ] && salt=0x0f
+
+	# Broadcast entry in this interface's database
+	local w0=$(rd $(( 0xBB000000 + salt * 128 )))
+	local w1=$(rd $(( 0xBB000000 + salt * 128 + 4 )))
 	if [ "$w0" = "0xFFFFFFFF" ]; then
-		pass "FDB row 0: broadcast word0 OK ($w0)"
+		pass "FDB bcast (fid salt $salt): word0 OK ($w0)"
 	else
-		fail "FDB row 0: word0=$w0 (expected 0xFFFFFFFF)"
+		fail "FDB bcast (fid salt $salt): word0=$w0 (expected 0xFFFFFFFF)"
 	fi
-	# CPU MAC at entry 960 (row 240, col 0)
-	w0=$(rd 0xBB007800)
-	w1=$(rd 0xBB007804)
-	if [ "$w0" = "0xBE00FEBA" ]; then
-		pass "FDB row 240: CPU MAC word0 OK ($w0)"
+	if [ $(( (w1 >> 8) & 0x3F )) -eq 63 ] && [ $(( (w1 >> 17) & 1 )) -eq 1 ]; then
+		pass "FDB bcast: ports 0-5 + CPU OK ($w1)"
 	else
-		fail "FDB row 240: word0=$w0 (expected 0xBE00FEBA)"
+		fail "FDB bcast: word1=$w1 (expected memberPort 0x3F and toCPU)"
+	fi
+
+	# Static CPU MAC entry.  The row is the XOR of the six MAC octets
+	# salted with the fid, and each row holds four columns.
+	local mac=$(ip -o link show "$IFACE" 2>/dev/null |
+		    sed -n 's/.*link\/ether \([0-9a-fA-F:]*\).*/\1/p')
+	if [ -z "$mac" ]; then
+		skip "FDB CPU MAC: cannot read $IFACE MAC"
+		return
+	fi
+	local row=$salt o
+	for o in $(echo "$mac" | tr ':' ' '); do
+		row=$(( row ^ 0x$o ))
+	done
+	local addr=$(( 0xBB000000 + row * 128 ))
+	w0=$(rd $addr)
+	w1=$(rd $(( addr + 4 )))
+
+	set -- $(echo "$mac" | tr ':' ' ')
+	local m0=$((0x$1)) m1=$((0x$2)) m2=$((0x$3))
+	local m3=$((0x$4)) m4=$((0x$5))
+	local exp=$(printf '0x%08X' $(( (m1 << 24) | (m2 << 16) | (m3 << 8) | m4 )))
+	if [ "$w0" = "$exp" ]; then
+		pass "FDB row $row: CPU MAC word0 OK ($w0)"
+	else
+		fail "FDB row $row: word0=$w0 (expected $exp)"
+	fi
+	if [ $(( w1 & 0xFF )) -eq $m0 ] &&
+	   [ $(( (w1 >> 8) & 0x3F )) -eq 0 ] &&
+	   [ $(( (w1 >> 14) & 0x7 )) -eq 1 ] &&
+	   [ $(( (w1 >> 17) & 1 )) -eq 1 ] &&
+	   [ $(( (w1 >> 18) & 1 )) -eq 1 ]; then
+		pass "FDB row $row: CPU-only static entry OK ($w1)"
+	else
+		fail "FDB row $row: word1=$w1 (expected octet0/cpu-ext/toCPU/isStatic)"
 	fi
 }
 
 test_vlan() {
-	local w0=$(rd 0xBB050100)  # VLAN_BASE + VID*32 = 0xBB050000 + 8*32
-	local ports=$((w0 & 0x3F))
-	if [ "$ports" = "63" ]; then
-		pass "VLAN[8] memberPorts=0x3F OK"
+	local w8=$(rd 0xBB060100)   # VLAN 8, WAN: port 0 + CPU
+	local w9=$(rd 0xBB060120)   # VLAN 9, LAN: ports 1-4 + CPU
+	local p8=$((w8 & 0x7F))
+	local p9=$((w9 & 0x7F))
+	if [ "$p8" = "65" ] && [ "$p9" = "94" ]; then
+		pass "VLAN8=0x41 (WAN p0+CPU), VLAN9=0x5e (LAN p1-4+CPU) OK"
 	else
-		fail "VLAN[8] memberPorts=$ports (expected 63)"
+		fail "VLAN members: 8=0x$(printf %02x $p8) (want 0x41), 9=0x$(printf %02x $p9) (want 0x5e)"
 	fi
 }
 
 test_ifconfig() {
 	if check_cmd ifconfig; then
-		local rx=$(ifconfig eth0 2>/dev/null | grep "RX packets" | awk '{print $3}' | cut -d: -f2)
-		local tx=$(ifconfig eth0 2>/dev/null | grep "TX packets" | awk '{print $3}' | cut -d: -f2)
+		# busybox: "RX packets:132 errors:0", net-tools: "RX packets 132  bytes ..."
+		local rx=$(ifconfig "$IFACE" 2>/dev/null | sed -n 's/.*RX packets[: ]*\([0-9][0-9]*\).*/\1/p')
+		local tx=$(ifconfig "$IFACE" 2>/dev/null | sed -n 's/.*TX packets[: ]*\([0-9][0-9]*\).*/\1/p')
 		if [ -n "$rx" ]; then
 			pass "ifconfig: RX=$rx TX=$tx"
 			return
 		fi
 	fi
-	skip "ifconfig: eth0 not found"
+	skip "ifconfig: $IFACE not found"
 }
 
 # ── mac-drop feature test ──
@@ -236,13 +298,16 @@ test_mac_drop() {
 	local b4=0x$(echo "$mac" | cut -d: -f5)
 	local b5=0x$(echo "$mac" | cut -d: -f6)
 
-	# L2 entry: word0=(b3<<24)|(b4<<16)|(b1<<8)|b2, word1=(b0<<24)|(1<<13)
-	local w0=$(( (b3 << 24) | (b4 << 16) | (b1 << 8) | b2 ))
-	local w1=$(( (b0 << 24) | (1 << 13) ))  # isStatic=1, memberPort=0, toCPU=0
-	local row=32  # entry 128
+	# Driver encoding: word0 = mac1..4, word1 = mac0 | member<<8 |
+	# static<<18 | fid<<23.  The row is the XOR of the MAC octets salted
+	# with the fid (LAN = 1, salt 0x0f).
+	local w0=$(( (b1 << 24) | (b2 << 16) | (b3 << 8) | b4 ))
+	local w1=$(( b0 | (1 << 18) | (1 << 23) ))
+	local row=$(( (b0 ^ b1 ^ b2 ^ b3 ^ b4 ^ b5 ^ 0x0f) & 0xFF ))
+	local eidx=$((row * 4))
 
-	echo "  Inserting drop entry for $mac at row $row (eidx=128)..."
-	taci_write 0 128 "$w0 $w1 0 0 0 0 0 0" 1
+	echo "  Inserting drop entry for $mac at row $row (eidx=$eidx)..."
+	taci_write 0 "$eidx" "$w0 $w1 0 0 0 0 0 0" 1
 
 	if ! ping -c 1 -W 1 "$ip" >/dev/null 2>&1; then
 		pass "MAC drop: ping $ip BLOCKED"
@@ -251,7 +316,7 @@ test_mac_drop() {
 	fi
 
 	echo "  Removing drop entry..."
-	taci_write 0 128 "0 0 0 0 0 0 0 0" 1
+	taci_write 0 "$eidx" "0 0 0 0 0 0 0 0" 1
 
 	if ping -c 1 -W 2 "$ip" >/dev/null 2>&1; then
 		pass "MAC drop: ping $ip RESTORED after removal"
@@ -263,7 +328,7 @@ test_mac_drop() {
 # ── main ──
 echo "=== swtest.sh — $(date) ==="
 
-# Ensure eth0 is up
+# Ensure the management interface is up
 ifup lan 2>/dev/null
 sleep 2
 
