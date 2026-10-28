@@ -177,9 +177,12 @@
 		};
 	};
 
-	eth: ethernet@18012000 {
+	eth: ethernet@10000 {
 		compatible = "realtek,rtl819x-eth";
-		reg = <0x18012000 0x2000>;
+		/* CPU interface at 0x18010000; the switch core itself
+		 * (0x18040000) is outside this bus window and the driver
+		 * reaches it through KSEG1 like the rest of the switch. */
+		reg = <0x10000 0x1000>;
 		interrupt-parent = <&gic>;
 		interrupts = <GIC_SHARED 25 IRQ_TYPE_LEVEL_HIGH>;
 		status = "disabled";
