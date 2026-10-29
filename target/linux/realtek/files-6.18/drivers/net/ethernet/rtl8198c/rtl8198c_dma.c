@@ -678,6 +678,23 @@ static struct net_device *eth_rx_netdev(struct rtl8198c_eth *eth,
 	return eth->netdev[0];
 }
 
+/* Frames the switch itself flooded inside the VLAN: broadcast, multicast
+ * and unicast that is not one of our own addresses (the static entries for
+ * those point at the CPU only).  The CPU gets a copy, but the other member
+ * ports already have the frame, so the bridge must not forward it again. */
+static bool eth_rx_flooded(struct rtl8198c_eth *eth, const u8 *data)
+{
+	int i;
+
+	if (is_multicast_ether_addr(data))
+		return true;
+	for (i = 0; i < ETH_PORTS; i++)
+		if (eth->netdev[i] &&
+		    ether_addr_equal(data, eth->netdev[i]->dev_addr))
+			return false;
+	return true;
+}
+
 /* Drain up to budget frames from one RX ring.  Returns the number of
  * descriptors consumed. */
 static int rx_poll_ring(struct rtl8198c_eth *eth, int ring, int budget)
@@ -719,6 +736,7 @@ static int rx_poll_ring(struct rtl8198c_eth *eth, int ring, int budget)
 		{
 			struct net_device *rdev;
 			struct sk_buff *skb, *new_skb;
+			bool flooded;
 			int len = ph->ph_len - 4; /* ph_len includes CRC */
 
 			midx = rx_mbuf_idx(eth, mb);
@@ -756,7 +774,14 @@ static int rx_poll_ring(struct rtl8198c_eth *eth, int ring, int budget)
 			mb->m_len = 0;
 
 			skb_put(skb, len);
+			/* Read the destination before eth_type_trans() pulls
+			 * the MAC header. */
+			flooded = eth_rx_flooded(eth, skb->data);
 			skb->protocol = eth_type_trans(skb, rdev);
+			/* Already flooded by the switch: lets the bridge skip
+			 * its own flood instead of sending a second copy. */
+			if (flooded)
+				skb->offload_fwd_mark = 1;
 			/* eth_type_trans() only sets the MAC header; the checksum
 			 * and priority paths below parse the IP header. */
 			skb_reset_network_header(skb);

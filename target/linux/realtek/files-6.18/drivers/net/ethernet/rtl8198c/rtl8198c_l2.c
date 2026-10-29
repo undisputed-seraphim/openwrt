@@ -62,7 +62,7 @@ void rtl8198c_taci_write_entry(u32 taa, const u32 e[8], u32 cmd_bits)
 /* Read one table entry.  The switch learns and ages entries asynchronously,
  * so a single read can catch the hardware in the middle of an update: read
  * the entry twice and retry until both copies agree. */
-static void taci_read_entry(u32 taa, u32 e[8])
+void rtl8198c_taci_read_entry(u32 taa, u32 e[8])
 {
 	u32 again[8];
 	int i, tries;
@@ -180,7 +180,7 @@ static int l2_fdb_find(const u8 *mac, u32 fid, struct l2_fdb_entry *f)
 	u8 col;
 
 	for (col = 0; col < L2_COLS; col++) {
-		taci_read_entry(l2_entry_taa(row, col), e);
+		rtl8198c_taci_read_entry(l2_entry_taa(row, col), e);
 		if (!l2_entry_valid(e))
 			continue;
 		l2_entry_parse(e, row, col, f);
@@ -188,6 +188,61 @@ static int l2_fdb_find(const u8 *mac, u32 fid, struct l2_fdb_entry *f)
 			return 0;
 	}
 	return -ENOENT;
+}
+
+/* Index of an existing entry as (row << 2 | column).  The next-hop table
+ * points at an L2 slot rather than at a MAC, so the gateway's entry has to
+ * be found before it can be referenced. */
+int rtl8198c_l2_fdb_lookup(const u8 *mac, u32 fid, u16 *l2)
+{
+	struct l2_fdb_entry f;
+	u32 e[8];
+	u16 row = l2_row(mac, fid);
+	u8 col;
+
+	mutex_lock(&l2_fdb_lock);
+	for (col = 0; col < L2_COLS; col++) {
+		rtl8198c_taci_read_entry(l2_entry_taa(row, col), e);
+		if (!l2_entry_valid(e))
+			continue;
+		l2_entry_parse(e, row, col, &f);
+		if (f.fid == fid && ether_addr_equal(f.mac, mac)) {
+			*l2 = (row << 2) | col;
+			mutex_unlock(&l2_fdb_lock);
+			return 0;
+		}
+	}
+	mutex_unlock(&l2_fdb_lock);
+	return -ENOENT;
+}
+
+/* Make an existing entry static, keeping the port mask it was learned with.
+ * The ARP and next-hop tables point at an L2 slot, so an entry they use must
+ * not age out from under them. */
+int rtl8198c_l2_fdb_pin(const u8 *mac, u32 fid)
+{
+	struct l2_fdb_entry f;
+	u32 e[8];
+	u16 row = l2_row(mac, fid);
+	u8 col;
+	int err = -ENOENT;
+
+	mutex_lock(&l2_fdb_lock);
+	for (col = 0; col < L2_COLS; col++) {
+		rtl8198c_taci_read_entry(l2_entry_taa(row, col), e);
+		if (!l2_entry_valid(e))
+			continue;
+		l2_entry_parse(e, row, col, &f);
+		if (f.fid != fid || !ether_addr_equal(f.mac, mac))
+			continue;
+		l2_entry_build(e, mac, f.member, f.ext, f.to_cpu, true, fid);
+		rtl8198c_taci_write_entry(l2_entry_taa(row, col), e,
+					  TACI_CMD_FORCE);
+		err = 0;
+		break;
+	}
+	mutex_unlock(&l2_fdb_lock);
+	return err;
 }
 
 /* Install a static entry.  If the MAC is already in the table its column is
@@ -202,7 +257,7 @@ int rtl8198c_l2_fdb_add(const u8 *mac, u8 member, u8 ext, bool to_cpu, u32 fid)
 
 	mutex_lock(&l2_fdb_lock);
 	for (col = 0; col < L2_COLS; col++) {
-		taci_read_entry(l2_entry_taa(row, col), e);
+		rtl8198c_taci_read_entry(l2_entry_taa(row, col), e);
 		if (!l2_entry_valid(e)) {
 			if (free_col == L2_COLS)
 				free_col = col;
@@ -257,7 +312,7 @@ static void l2_fdb_flush_dynamic(u32 fid)
 	mutex_lock(&l2_fdb_lock);
 	for (row = 0; row < L2_ROWS; row++) {
 		for (col = 0; col < L2_COLS; col++) {
-			taci_read_entry(l2_entry_taa(row, col), e);
+			rtl8198c_taci_read_entry(l2_entry_taa(row, col), e);
 			if (!l2_entry_valid(e))
 				continue;
 			l2_entry_parse(e, row, col, &f);
@@ -467,9 +522,17 @@ void rtl8198c_switch_l2_init(const u8 macs[][ETH_ALEN])
 	v |= CSCR_EN_L3_CAL | CSCR_EN_L4_CAL;
 	sys_w32(CSCR, v);
 
+	/* L3 tables: MEMCR does not clear them, and the default route has
+	 * to point at the CPU before any netif takes part in routing.  No
+	 * netif has enHWRoute set yet, so forwarding stays L2. */
+	rtl8198c_l3_init();
+	/* The NAPT session table is not covered by MEMCR either; it is
+	 * cleared here, before the L4 stage is ever armed. */
+	rtl8198c_l4_init();
+
 	/* Re-enable the L2 forwarding engine.  EN_L3 only arms the routing
-	 * engine: with no ARP, route or next-hop entries programmed nothing
-	 * is routed and forwarding stays L2, so the bit is harmless here. */
+	 * engine: no netif has enHWRoute set, so no frame enters the L3
+	 * stage and forwarding stays L2. */
 	/* Bootloader sets MSCR = EN_L2 only (0x01) */
 	sys_w32(MSCR, sys_r32(MSCR) | MSCR_EN_L2 | MSCR_EN_L3);
 
@@ -494,27 +557,40 @@ void rtl8198c_switch_l2_init(const u8 macs[][ETH_ALEN])
 /* Netif table + VLAN creation (bootloader: after swNic_init).
  * Also includes runtime L2 debugfs handlers (MAC filter, VLAN egress)
  * since they operate on the same hardware tables. */
-/* Netif table entry: the MAC the switch should treat as "this netdev",
- * its VLAN and the MTU (1500).  Index is the port. */
+/* Netif table entry: the interface the L3 stage finds by VLAN id.  `mac`
+ * is the address neighbours resolve, `route` sets enHWRoute, and a NULL
+ * `mac` clears the slot.
+ *
+ * Exactly one entry per vid is valid: the lookup is by vid, and a second
+ * entry on the same vid stops hardware routing from engaging at all
+ * (measured).  The caller owns that rule - see rtl8198c_l3_netif_sync().
+ */
 void rtl8198c_netif_table_write(struct rtl8198c_eth *eth, u32 idx,
-			      const u8 *mac, u32 vid)
+				const u8 *mac, u32 vid, u32 mtu, bool route)
 {
-	u64 m = ether_addr_to_u64(mac);
+	u64 m;
 	u32 acl_end = eth->acl_end;	/* chains always start at entry 0 */
 	u32 nif_e[8] = {0};
 
-	nif_e[0] = ((u32)(m & 0x7FFFF) << 13) | (vid << 1) | 1;
+	if (!mac) {
+		rtl8198c_taci_write_entry(TBL_NETIF + idx * 32, nif_e,
+					  TACI_CMD_FORCE);
+		return;
+	}
+
+	m = ether_addr_to_u64(mac);
+	nif_e[0] = ((u32)(m & 0x7FFFF) << 13) | ((vid & 0xFFF) << 1) | 1;
 	/* mac47_19 | enHWRoute | enHWRouteV6 | inACLStartL */
-	nif_e[1] = ((u32)(m >> 19) & 0x1FFFFFFF);
+	nif_e[1] = ((u32)(m >> 19) & 0x1FFFFFFF) |
+		   (route ? NETIF_EN_HWROUTE : 0);
 	/* inACLStartH:7 | inACLEnd:8 | outACLStart:8 | outACLEnd:8 |
 	 * macMaskL:1.  The ingress chain runs 0..acl_end; the egress range
 	 * stays on the reserved permit rule because the egress engine is
 	 * never enabled. */
 	nif_e[2] = BIT(31) | ((acl_end & 0xFF) << 7) |
 		   ((u32)ACL_PERMIT_ALL << 15) | ((u32)ACL_PERMIT_ALL << 23);
-	nif_e[3] = ((u32)eth->port_mtu[idx] << 17) |
-		   ((u32)eth->port_mtu[idx] << 2) | 3; /* mtuV6, mtu, macMaskH */
-	rtl8198c_taci_write_entry(TBL_NETIF + idx * 32, nif_e, BIT(0) | BIT(3)); /* FORCE */
+	nif_e[3] = ((u32)mtu << 17) | ((u32)mtu << 2) | 3; /* mtuV6, mtu, macMaskH */
+	rtl8198c_taci_write_entry(TBL_NETIF + idx * 32, nif_e, TACI_CMD_FORCE);
 }
 
 static const char * const pbvlan_name[PBV_RULES] = {
@@ -659,16 +735,11 @@ void rtl8198c_netif_vlan_init(struct rtl8198c_eth *eth,
 {
 	int i;
 
-	/* One netif entry per netdev, matching the vendor's per-port netif
-	 * table.  Word 0 is mac18_0:19 | vid:12 | valid:1, word 1 holds
-	 * mac47_19.  The previous entry was a dump from another board (wrong
-	 * MAC and mtu 46); build it from the running MAC instead. */
+	/* The netif entries themselves are per VLAN, not per port: they are
+	 * built by rtl8198c_l3_netif_init() once the switch is up. */
 	memcpy(eth->port_mac, macs, sizeof(eth->port_mac));
-	for (i = 0; i < ETH_PORTS; i++) {
+	for (i = 0; i < ETH_PORTS; i++)
 		eth->port_mtu[i] = 1500;
-		rtl8198c_netif_table_write(eth, i, eth->port_mac[i],
-				  i ? VLAN_LAN : VLAN_WAN);
-	}
 	/* Native VLANs: port 0 (WAN) alone in VLAN 8, ports 1-4 (LAN)
 	 * sharing VLAN 9, the CPU a member of both and everything untagged.
 	 * l2_table_clear() clears the table (MEMCR bit 2), so they have to be
@@ -676,6 +747,7 @@ void rtl8198c_netif_vlan_init(struct rtl8198c_eth *eth,
 	 * an unknown VID is trapped to the CPU, so traffic still passes. */
 	eth->fid_vid[L2_FID_WAN] = VLAN_WAN;
 	eth->fid_vid[L2_FID_LAN] = VLAN_LAN;
+	/* TEST: port 3 joins the WAN VLAN on the bench board. */
 	eth->vlans[0] = (struct rtl8198c_vlan) {
 		.used = true, .vid = VLAN_WAN, .fid = L2_FID_WAN,
 		.member = BIT(0) | BIT(6), .untag = BIT(0) | BIT(6),
@@ -687,13 +759,27 @@ void rtl8198c_netif_vlan_init(struct rtl8198c_eth *eth,
 	vlan_program(eth, &eth->vlans[0]);
 	vlan_program(eth, &eth->vlans[1]);
 
-	/* PVIDs: port 0 is the WAN port, ports 1-4 are LAN.  PVCR0-4 are at
-	 * 0x4A08+; 0x4A1C and 0x4A20 are PBVCR0/PBVCR1 (protocol-based VLAN),
-	 * which the code above writes by mistake.  The bootloader writes both
-	 * the low PVID and the 27:16 field, so do the same. */
-	sys_w32(PVCR0, ((VLAN_WAN) << 16) | VLAN_WAN);
-	for (i = 1; i < ETH_PORTS; i++)
-		sys_w32(PVCR0 + i * 4, (VLAN_LAN << 16) | VLAN_LAN);
+	/* PVIDs: port 0 is the WAN port, ports 1-4 are LAN.  The registers
+	 * are pairwise: port * 2 & ~3 selects PVCR0/1/2 for ports 0-1, 2-3
+	 * and 4-5, with the even port in bits 0-11 and the odd port in bits
+	 * 16-27.  Writing PVCR0 + port * 4 (the obvious layout) puts port 1
+	 * in the WAN VLAN and lands LAN PVIDs on the CPU extension ports;
+	 * the BSP's rtl8651_setAsicPvid() has the same pairwise arithmetic. */
+	for (i = 0; i < ETH_PORTS; i++) {
+		u32 reg = PVCR0 + ((i * 2) & ~3);
+		u32 pvid = i ? VLAN_LAN : VLAN_WAN;
+		u32 pvc = sys_r32(reg);
+
+		if (i & 1)
+			pvc = (pvc & ~0xFFF0000) | (pvid << 16);
+		else
+			pvc = (pvc & ~0xFFF) | pvid;
+		sys_w32(reg, pvc);
+	}
+	/* PVCR3 covers the two CPU extension ports (6 and 7).  The CPU
+	 * transmits untagged, so its PVID is the VLAN every CPU-originated
+	 * frame is classified into: keep it on the LAN VLAN. */
+	sys_w32(PVCR0 + 12, ((VLAN_LAN) << 16) | VLAN_LAN);
 
 	/* Enforce VLAN membership on ingress as well as egress.  Without
 	 * this a port can inject tagged frames into a VLAN it is not a
@@ -793,7 +879,7 @@ static int fdb_show(struct seq_file *s, void *v)
 
 	for (row = 0; row < L2_ROWS; row++) {
 		for (col = 0; col < L2_COLS; col++) {
-			taci_read_entry(l2_entry_taa(row, col), e);
+			rtl8198c_taci_read_entry(l2_entry_taa(row, col), e);
 			if (!l2_entry_valid(e))
 				continue;
 			l2_entry_parse(e, row, col, &f);
@@ -1171,7 +1257,7 @@ int rtl8198c_eth_fdb_dump(struct sk_buff *skb, struct netlink_callback *cb,
 
 	for (row = 0; row < L2_ROWS; row++) {
 		for (col = 0; col < L2_COLS; col++) {
-			taci_read_entry(l2_entry_taa(row, col), e);
+			rtl8198c_taci_read_entry(l2_entry_taa(row, col), e);
 			if (!l2_entry_valid(e))
 				continue;
 			l2_entry_parse(e, row, col, &f);

@@ -91,10 +91,15 @@
 #define MACCR_RXIPG		6	/* min IPG for received packets (6..12) */
 #define VCR0			0xBB804A00
 #define SWTCR0			0xBB804418
+#define SWTCR0_NAPT_DROP_REVERSE BIT(0)	/* reverse session miss: drop, not CPU */
+#define SWTCR0_NAPT_AUTOLEARN	BIT(1)
+#define SWTCR0_NAPT_AUTODELETE	BIT(2)
+#define SWTCR0_NAPT_F2CPU	BIT(14)	/* non-TCP/UDP/ICMP to a NAPT netif */
 #define LIMDBC_MASK		(3 << 16)
 #define LIMDBC_VLAN		(0 << 16)
 #define EN_UKVID_TO_CPU		BIT(15)
 #define SWTCR1			0xBB80441C
+#define SWTCR1_L4_ENHASH1	BIT(13)	/* enhanced hash1: session verify field */
 #define DACLRCR			0xBB804424	/* default ACL rule control: ingress
 					 * range @7:0/15:8, egress @23:16/31:24 */
 #define FFCR			0xBB804428
@@ -134,7 +139,17 @@
 #define VCR1			0xBB804A04
 #define TEACR			0xBB804400	/* table entry aging control */
 #define L2_AGING_DISABLE	BIT(0)
+#define L4_AGING_DISABLE	BIT(1)
 #define EN_L2_FAST_AGING	BIT(5)
+/* L4 session/VLAN timeout base: five 6-bit fields, non-linear encoding.
+ * The field order is fixed by the hardware; see rtl8198c_l4.c. */
+#define TEATCR			0xBB804404
+#define TEATCR_TCP_FAST_SHIFT	0
+#define TEATCR_TCP_MED_SHIFT	6
+#define TEATCR_TCP_LONG_SHIFT	12
+#define TEATCR_UDP_SHIFT	18
+#define TEATCR_ICMP_SHIFT	24
+#define TEATCR_FIELD		0x3F
 #define MGFCR_E0R0		0xBB80442C	/* 12 MAC-group forwarding regs */
 #define PPMAR			0xBB804010	/* per-port pattern matching action */
 #define DOT1XPORTCR		0xBB804B00
@@ -166,13 +181,72 @@
 
 /* ===== Switch lookup tables (TACI; KSEG1 base + index * 32) ===== */
 #define TBL_L2			0xBB000000
+#define TBL_ARP			0xBB010000
+#define TBL_ROUTE		0xBB020000	/* IPv4: 8 prefixes, last = default */
+#define TBL_IPMCAST		0xBB030000	/* (S,G), L3 mode only */
 #define TBL_NETIF		0xBB040000
+#define TBL_EXTIP		0xBB050000	/* internal/external IP pairs (NAPT) */
 #define TBL_VLAN		0xBB060000
+#define TBL_SERVER_PORT		0xBB080000	/* not in the 8198C silicon */
+#define TBL_TCP_UDP		0xBB090000	/* NAPT sessions, 1024 entries */
+#define TBL_ICMP		0xBB0A0000	/* not in the 8198C silicon */
+#define TBL_PPPOE		0xBB0B0000
+#define TBL_ACL			0xBB0C0000
+#define TBL_NEXTHOP		0xBB0D0000	/* gateway groups, used by process 5 */
+#define TBL_ALG			0xBB0F0000	/* not in the 8198C silicon */
+#define TBL_DSLITE		0xBB100000
+#define TBL_6RD			0xBB110000
+#define TBL_ROUTE6		0xBB120000
+#define TBL_NEXTHOP6		0xBB130000
+#define TBL_ARP6		0xBB140000
+#define TBL_IPMCAST6		0xBB150000
 #define TACI_BASE		0xBB804D00
 #define SWTACR			(TACI_BASE + 0x00)
 #define SWTAA			(TACI_BASE + 0x08)
 #define TCR0			(TACI_BASE + 0x20)
 #define TACI_ACTION		1		/* bit 0: command busy */
+#define TACI_CMD_READ		0x1		/* stop TLU and read */
+#define TACI_CMD_ADD		0x3		/* insert, hash decides the slot */
+#define TACI_CMD_FORCE		0x9		/* write this exact slot */
+
+/* Table sizes (BSP rtl865x_asicL3.h, 8198C section). */
+#define L3_ROUTES		8
+#define L3_DEFAULT_ROUTE	(L3_ROUTES - 1)	/* the route-miss path */
+#define L3_NEXTHOPS		32
+#define L3_ARPS			512
+#define L3_ARP_STRIDE		8		/* ARP block granularity */
+#define L3_EXT_IPS		16
+#define L3_PPPOES		8
+#define L3_IPMCASTS		256
+#define L3_ROUTES6		8
+#define L3_NEXTHOPS6		32
+#define L3_ARPS6		256
+#define L3_IPMCASTS6		256
+#define L3_DSLITE_ENTRIES	8
+#define L3_6RD_ENTRIES		8
+
+/* TCP/UDP session table (TACI type 9).  The external-IP table is the one
+ * already used by the L3 code (16 entries).  The ICMP echo, server-port and
+ * ALG tables have type numbers but no silicon behind them on this core. */
+#define L4_SESSIONS		1024
+#define L4_HASH_MASK		(L4_SESSIONS - 1)
+#define L4_EXT_IPS		16
+
+/* ALE control bits used once the routing engine is armed. */
+#define ALECR_TTL1		BIT(16)	/* decrement the TTL of routed frames */
+#define ALECR_FRAG2CPU		BIT(15)	/* trap IP fragments to the CPU */
+
+/* Route entry, word 1, process field: where the next hop comes from. */
+#define L3_PROC_PPPOE		0
+#define L3_PROC_L2		1		/* direct, nextHop holds an L2 index */
+#define L3_PROC_ARP		2		/* on-link, range holds an ARP block */
+#define L3_PROC_CPU		4		/* punt to the kernel */
+#define L3_PROC_NEXTHOP		5		/* gateway group in the next-hop table */
+#define L3_PROC_DROP		6
+
+/* Netif entry, word 1: this interface takes part in L3 routing. */
+#define NETIF_EN_HWROUTE	BIT(29)
+#define NETIF_EN_HWROUTE_V6	BIT(30)
 
 #define MIB_CONTROL		0xBB801000	/* also the counter block base */
 /* Per-port counters, 0x80 bytes apart (BSP MIB_ADDROFFSETBYPORT) */
@@ -373,7 +447,6 @@ struct mbuf {
  * first match wins (comb = 0), so a range has to end with a catch-all.
  * Only ingress ACLs are used: the BSP disables the egress engine citing a
  * hardware bug. */
-#define TBL_ACL			0xBB0C0000
 #define ACL_RULES		252
 #define ACL_IPV6_TO_CPU		252
 #define ACL_PERMIT_ALL		253

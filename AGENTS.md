@@ -157,6 +157,7 @@ table.
 | Hardware STP port states | Working — the first bridge port turns on `MSCR.EN_STP` + `RMACR.MADDR00`; `br_set_state()` reaches the driver as a switchdev port attribute and lands in `PCRP` bits 5:4.  Verified: `bridge link set dev eth4 state 0` drops data while BPDUs still arrive, and the kernel STP state machine steps listening -> learning -> forwarding |
 | Bridge offload (switchdev) | Working — ports register with `switchdev_bridge_port_offload` (PPID = switch id + filtering database, `tx_fwd_offload`); flooded frames are marked `offload_fwd_mark`, so the software bridge sends no second copy (100 broadcasts: 2 copies -> 1, unknown unicast 5 -> 5 not 10); `bridge mdb` groups become L2 entries with the port mask + CPU copy |
 | IPv4 routing offload | Working (off by default) — the FIB is mirrored and the routes the hardware can carry are programmed: 8-prefix route table with the CPU default at index 7, ARP blocks for on-link prefixes of /23 and longer, next-hop pairs for gateways, the router's own addresses as CPU /32s.  `echo 1 > switch/route_offload` enables it; routed frames then bypass netfilter and NAT.  Verified in both directions on hardware (0 frames on the CPU ports), withdrawal when a route or neighbour goes away, `l3`/`taci` debugfs |
+| NAPT / flow offload | Working (off by default) — IPv4 TCP/UDP source NAT driven by nftables flowtables.  `ndo_setup_tc(TC_SETUP_FT)` turns each offered flow's match tuple and mangle actions into the two session rows (out at `hash(int,remote)`, in verification row at `hash(remote,ext)`), keeps the nft cookie per direction for teardown, refreshes the software flow from the row's validity (no per-row counters) and flushes on unbind.  `echo 1 > switch/flow_offload` needs `route_offload=1`.  Measured 942 Mbit/s TCP and 500 Mbit/s UDP through masquerade with 0 data frames on the CPU ports; a 40 s flow stays offloaded; fragmented UDP passes; ICMP is punted and NAT'd by the kernel |
 | Multi-ring TX/RX and queues | Working — two TX rings (`skb->priority >= 4` uses ring 1) and six RX rings, one per switch queue; `CPUQIDMCR0` maps priority->CPU queue, `CPUQDM` queue->ring, `QNUMCR` gives the CPU port six queues; debugfs `dscp` and `rxmap`; `ethtool -S` shows `tx_ring0/1_packets`, `rx_ring0..5_packets`, `rx_queue0..7_packets` |
 | Rate limiting | Working (egress) — per port via `tx-0/tx_maxrate`, per queue via debugfs `rate` (APR/L1/PPR); TX priority uses `ph_txPriority` + `UPTCMCR1`, not `ph_queueId`.  Ingress `IBCR` is inert on this core (16 kbps on every port still passed 941 Mbit/s through the fabric) |
 | Jumbo frames | Working — MTU up to 9000 (`ndo_change_mtu`, PCRP 9K, PHY page 0 reg 23 bit 8, 10 KB RX buffers, netif-table MTU); ~762 Mbit/s host→board at 9000 with zero-copy RX |
@@ -193,12 +194,16 @@ cable silently caps the link at 100M (the PHY's auto-down-speed drops the
 1G advertisement), which is easy to mistake for a driver problem — check
 `swdebug.sh phy 4 10`: bit 13 set means the link really is at 1G.
 
-Hardware offload (checksum, scatter-gather) is partially implemented:
+Hardware offload (checksum, scatter-gather, NAPT) is partially implemented:
 - TX checksum offload works for IPv4 TCP/UDP: `CSCR` is programmed in
   `switch_l2_init()` and `eth_start_xmit()` sets `CSUM_TCPUDP`.  The ASIC
   leaves the IPv4 header checksum at zero, so the driver computes that in
   software (`ipv4_hdr_csum()`); IPv6 and anything else falls back to
   `skb_checksum_help()`
+- NAPT works as the backend of nftables flowtable offload: 942 Mbit/s TCP
+  and 500 Mbit/s UDP through masquerade with no data on the CPU ports.
+  It needs `route_offload=1` and is source-NAT only; see the flow offload
+  test above for the setup and limits
 - `MACCR` bits 3:0 (CF_RXIPG) must not be 0: a bare `LONG_TXE` write
   makes the MAC drop back-to-back frames (TCP collapses to ~4% while
   pings pass).  The driver sets `MACCR_RXIPG` = 6
@@ -373,6 +378,47 @@ address owner's MAC (the netif MAC is the first address owner, `eth4` in
 the default setup): `ip -n peer neigh replace 192.168.3.2 lladdr
 ca:fe:ba:be:00:04 dev enxf8e43b6ff0b9`.
 
+**Flow offload test (nftables masquerade)** - both knobs on, then a
+flowtable with `flags offload`.  The nft chain name `fwd` is reserved;
+use `forward`.
+```
+fw4 stop
+ip link set eth3 up; ip addr add 192.168.3.2/24 dev eth3
+ip route add 10.9.0.0/24 via 192.168.3.1 dev eth3
+echo 1 > /sys/kernel/debug/rtl8198c-eth/switch/route_offload
+echo 1 > /sys/kernel/debug/rtl8198c-eth/switch/flow_offload
+cat > /tmp/t.nft <<'EOF'
+table inet t {
+ flowtable ft {
+  hook ingress priority filter
+  devices = { eth3, eth4 }
+  flags offload
+ }
+ chain forward {
+  type filter hook forward priority filter; policy accept
+  ip protocol { tcp, udp } flow add @ft
+ }
+ chain post {
+  type nat hook postrouting priority srcnat; policy accept
+  oifname eth3 masquerade
+ }
+}
+EOF
+nft -f /tmp/t.nft
+# host: ip route add 10.9.0.0/24 via 192.168.2.2
+# peer netns: iperf3 -s -B 10.9.0.1 -1 -D
+# host: iperf3 -c 10.9.0.1 -t 5        # ~940 Mbit/s, 0 data frames on eth3/4
+cat /sys/kernel/debug/rtl8198c-eth/switch/l4   # flows with both cookies
+nft delete table inet t                # unbind: flushes every row
+```
+The firewall sees only the first packet of an offloaded flow: after that
+it is not filtered, tracked or counted, and `conntrack` counters stop
+advancing.  Source NAT only - a router that needs port forwards must
+leave `route_offload` off, because their replies are routed before the
+kernel can offer them - and ICMP is punted and NAT'd in software.
+`flow_offload` off flushes the rows, so toggle it with `route_offload`,
+not under traffic.
+
 **Hardware STP port states** (bridge them, then drive the states):
 ```
 ip link add br0 type bridge ; ip link set eth4 master br0
@@ -409,6 +455,13 @@ rate         # echo "port <n> egress <kbps>"        per-port egress limit
              # echo "reset" clears every limit; read shows the table
 acl          # echo "add mac|ip ... action permit|drop|tocpu" / "del <n>" / "default drop" / flush
 mcast        # echo "add 239.1.2.3 ports 0x08 [fid N] [cpu]" / "del <group>" / flush
+route_offload# echo 0|1  let the ASIC route (bypasses netfilter and NAT)
+flow_offload # echo 0|1  let nftables flowtables program the NAPT engine;
+             # needs route_offload=1; off flushes every session and ext-IP
+l4           # cat: engine state, TEATCR, external-IP and session mirror
+             # echo "add tcp <int ip> <port> <rem ip> <port> <ext ip> <port>"
+             # echo "del tcp <int ip> <port> <rem ip> <port>" / flush
+             # echo "engine on|off"  raw arm/disarm (flow_offload is the knob)
 ```
 
 Note: the switch's per-port MIB counters (SWCORE + 0x1000) are not decoded

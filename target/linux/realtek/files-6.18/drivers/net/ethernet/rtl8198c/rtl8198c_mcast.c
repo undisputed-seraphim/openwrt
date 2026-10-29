@@ -61,6 +61,44 @@ static int mcast_group_del(struct rtl8198c_eth *eth, const u8 *mac, u8 fid)
 	return 0;
 }
 
+/* ===== Bridge MDB =====
+ *
+ * The bridge snoops IGMP/MLD and asks for one port per group.  The L2
+ * table holds a single entry per group, so memberships are unioned here;
+ * the CPU keeps a copy because the reports and queries that keep the
+ * group alive are addressed to the group itself, and a group the CPU
+ * cannot see would age out on the bridge.
+ *
+ * HOST_MDB needs no separate entry: the CPU copy is always present, so a
+ * group the bridge itself joined still reaches it.
+ */
+int rtl8198c_mcast_mdb_add(struct rtl8198c_eth *eth, const u8 *mac, u8 fid,
+			   u32 port)
+{
+	struct mcast_group *g = mcast_find(eth, mac, fid);
+	u16 mask = BIT(port);
+
+	if (g)
+		mask |= g->portmask;
+	return mcast_group_add(eth, mac, fid, mask, true);
+}
+
+int rtl8198c_mcast_mdb_del(struct rtl8198c_eth *eth, const u8 *mac, u8 fid,
+			   u32 port)
+{
+	struct mcast_group *g = mcast_find(eth, mac, fid);
+	u16 mask;
+
+	if (!g)
+		return 0;	/* not programmed: nothing to undo */
+	mask = g->portmask & ~BIT(port);
+	if (!mask)
+		/* Last member gone: drop the entry and let the group flood
+		 * again. */
+		return mcast_group_del(eth, mac, fid);
+	return mcast_group_add(eth, mac, fid, mask, true);
+}
+
 
 /* ===== debugfs "mcast": IP multicast groups =====
  *
@@ -75,8 +113,9 @@ static int mcast_group_del(struct rtl8198c_eth *eth, const u8 *mac, u8 fid)
  * a multicast MAC directly, which is how MLD groups are given.  Each one
  * becomes an L2 FDB entry in the selected filtering database: frames for
  * it go only to the ports in the mask, plus the CPU when "cpu" is set.
- * Groups without an entry keep flooding.  The kernel bridge cannot drive
- * this (no switchdev), so the groups are programmed here.
+ * Groups without an entry keep flooding.  The bridge's own MDB drives the
+ * same table through rtl8198c_mcast_mdb_add()/del(); this file is the raw
+ * interface for groups the bridge does not know about.
  */
 static int mcast_parse_group(const char *s, u8 mac[ETH_ALEN])
 {

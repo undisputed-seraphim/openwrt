@@ -361,6 +361,8 @@ static void debugfs_init(struct rtl8198c_eth *eth)
 	/* Every other knob is registered by the block that implements it, so
 	 * each file owns its own interface. */
 	rtl8198c_l2_debugfs_init(eth);
+	rtl8198c_l3_debugfs_init(eth);
+	rtl8198c_l4_debugfs_init(eth);
 	rtl8198c_phy_debugfs_init(eth);
 	rtl8198c_qos_debugfs_init(eth);
 	rtl8198c_acl_debugfs_init(eth);
@@ -405,6 +407,9 @@ static int eth_probe(struct platform_device *pdev)
 		memcpy(macs[i], base, ETH_ALEN);
 		macs[i][5] += i;
 	}
+	/* One switch, one id: the bridge uses it to tell which ports share a
+	 * forwarding domain, so it must not follow a port's MAC changes. */
+	memcpy(eth->switch_id, base, ETH_ALEN);
 
 	switch_reset();
 	/* BSP clearRegister: switch core defaults, TRXRDY, PSCR block */
@@ -436,8 +441,9 @@ static int eth_probe(struct platform_device *pdev)
 	/* Bootloader creates netif + VLAN AFTER swNic_init.
 	 * Create them here matching the exact order. */
 	rtl8198c_netif_vlan_init(eth, macs);
-	/* The ACL engine needs the netif table in place (it rewrites the
-	 * ingress ranges), so it comes after rtl8198c_netif_vlan_init(). */
+	/* One netif entry per VLAN, then the ACL engine rewrites the same
+	 * entries to carry the ingress chain range. */
+	rtl8198c_l3_netif_init(eth);
 	rtl8198c_acl_init(eth);
 	cpu_w32(CPUIISR, cpu_r32(CPUIISR));
 
@@ -516,6 +522,7 @@ static int eth_probe(struct platform_device *pdev)
 	}
 
 	debugfs_init(eth);
+	rtl8198c_l3_register(eth);
 	dev_info(eth->dev, "registered %s..%s (%d ports) IRQ %d\n",
 		 eth->netdev[0]->name, eth->netdev[ETH_PORTS - 1]->name,
 		 ETH_PORTS, irq);
@@ -541,6 +548,7 @@ static void eth_remove(struct platform_device *pdev)
 	int i;
 
 	if (!eth) return;
+	rtl8198c_l3_unregister(eth);
 	debugfs_cleanup(eth);
 	for (i = 0; i < ETH_PORTS; i++)
 		if (eth->netdev[i]) {

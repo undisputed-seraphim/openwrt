@@ -12,6 +12,9 @@
 #include <net/switchdev.h>
 
 /* ===== net_device_ops ===== */
+static int eth_get_port_parent_id(struct net_device *dev,
+				  struct netdev_phys_item_id *ppid);
+
 static int eth_open(struct net_device *dev)
 {
 	struct rtl8198c_port *p = netdev_priv(dev);
@@ -102,7 +105,8 @@ static int eth_set_mac_address(struct net_device *dev, void *addr)
 
 	rtl8198c_l2_fdb_del(old, p->fid);
 	rtl8198c_l2_fdb_add(dev->dev_addr, 0, 1, true, p->fid);
-	rtl8198c_netif_table_write(eth, p->port, dev->dev_addr, p->vid);
+	memcpy(eth->port_mac[p->port], dev->dev_addr, ETH_ALEN);
+	rtl8198c_l3_dev_update(eth, dev);
 	return 0;
 }
 
@@ -116,7 +120,7 @@ static int eth_change_mtu(struct net_device *dev, int new_mtu)
 	dev->mtu = new_mtu;
 	eth->port_mtu[p->port] = new_mtu;
 	/* The switch's netif entry carries the MTU it will accept. */
-	rtl8198c_netif_table_write(eth, p->port, dev->dev_addr, p->vid);
+	rtl8198c_l3_netif_sync(eth);
 	/* The RX ring is shared, so a bigger MTU on one port may need bigger
 	 * buffers for every frame the CPU receives. */
 	if (eth->open_count)
@@ -145,12 +149,14 @@ const struct net_device_ops rtl8198c_eth_ops = {
 	.ndo_change_mtu	= eth_change_mtu,
 	.ndo_set_tx_maxrate = eth_set_tx_maxrate,
 	.ndo_set_mac_address = eth_set_mac_address,
+	.ndo_get_port_parent_id = eth_get_port_parent_id,
 	.ndo_vlan_rx_add_vid = rtl8198c_eth_vlan_rx_add_vid,
 	.ndo_vlan_rx_kill_vid = rtl8198c_eth_vlan_rx_kill_vid,
 	.ndo_fdb_add	= rtl8198c_eth_fdb_add,
 	.ndo_fdb_del	= rtl8198c_eth_fdb_del,
 	.ndo_fdb_del_bulk = rtl8198c_eth_fdb_del_bulk,
 	.ndo_fdb_dump	= rtl8198c_eth_fdb_dump,
+	.ndo_setup_tc	= rtl8198c_l4_setup_tc,
 	/* No .ndo_set_rx_mode: the switch cannot express promiscuous or
 	 * allmulti.  FFCR's TOCPU bits are global and do not gate CPU
 	 * delivery (the CPU receives unknown unicast and multicast because it
@@ -169,6 +175,13 @@ const struct net_device_ops rtl8198c_eth_ops = {
  * the device, and the deferred attribute that carries that state is flushed
  * while the port still looks bridged, so the reset has to come from the
  * unlink side to win.
+ *
+ * Offloading the port to the bridge (switchdev_bridge_port_offload) is what
+ * turns the L2 knowledge into hardware: the bridge then replays its MDB to
+ * this driver and stops assuming the hardware is dumb.  tx_fwd_offload is
+ * claimed because the switch does forward between its own ports; the frames
+ * it flooded are marked in the RX path (offload_fwd_mark), which is how the
+ * software bridge avoids sending a second copy of them.
  */
 static void eth_bridge_port(struct rtl8198c_eth *eth, u32 port, bool join)
 {
@@ -188,6 +201,56 @@ static void eth_bridge_port(struct rtl8198c_eth *eth, u32 port, bool join)
 			rtl8198c_stp_port_state(port, PCRP_STP_FORWARDING);
 		rtl8198c_stp_enable(false);
 	}
+}
+
+/* The port's place in the switch, for the bridge's hardware domains: every
+ * port of this chip carries the same switch id, and the filtering database
+ * is part of the id because the hardware floods inside a fid.  Two ports in
+ * different VLANs are therefore two domains, which is what keeps a bridge
+ * that spans them working when every flood-class frame is marked as already
+ * forwarded. */
+static int eth_get_port_parent_id(struct net_device *dev,
+				  struct netdev_phys_item_id *ppid)
+{
+	struct rtl8198c_port *p = netdev_priv(dev);
+
+	memcpy(ppid->id, p->sw->switch_id, ETH_ALEN);
+	ppid->id[ETH_ALEN] = p->fid;
+	ppid->id_len = ETH_ALEN + 1;
+	return 0;
+}
+
+static void eth_bridge_join(struct net_device *dev, struct netlink_ext_ack *extack)
+{
+	struct rtl8198c_port *p = netdev_priv(dev);
+	int err;
+
+	eth_bridge_port(p->sw, p->port, true);
+	/* A port that cannot be offloaded still bridges in software; the
+	 * bridge reports -EOPNOTSUPP for the objects it then cannot place. */
+	err = switchdev_bridge_port_offload(dev, dev, NULL, NULL,
+					    &rtl8198c_switchdev_nb, true,
+					    extack);
+	if (err) {
+		netdev_warn(dev, "bridge offload unavailable (%d), forwarding stays in software\n",
+			    err);
+		return;
+	}
+	p->offloaded = true;
+}
+
+static void eth_bridge_leave(struct net_device *dev)
+{
+	struct rtl8198c_port *p = netdev_priv(dev);
+
+	/* The bridge only tolerates an unoffload for a port it has on
+	 * record, so a failed join must not reach it. */
+	if (p->offloaded) {
+		switchdev_bridge_port_unoffload(dev, NULL, NULL,
+						&rtl8198c_switchdev_nb);
+		p->offloaded = false;
+	}
+	eth_bridge_port(p->sw, p->port, false);
 }
 
 /* br_set_state() defers its switchdev attribute to a work item, which is the
@@ -225,15 +288,44 @@ static int eth_switchdev_port_attr(struct net_device *dev,
 	return NOTIFY_OK;
 }
 
+/* The bridge's snooped groups: one L2 entry per group, on the port the
+ * group was joined on.  HOST_MDB is left unsupported on purpose - the entry
+ * already carries a CPU copy, so the bridge's own memberships keep working
+ * and the bridge treats the -EOPNOTSUPP as "not offloaded". */
+static int eth_switchdev_port_obj(struct net_device *dev, unsigned long event,
+				  struct switchdev_notifier_port_obj_info *info)
+{
+	struct rtl8198c_port *p = netdev_priv(dev);
+	const struct switchdev_obj_port_mdb *mdb;
+	int err;
+
+	if (info->obj->id != SWITCHDEV_OBJ_ID_PORT_MDB)
+		return NOTIFY_DONE;
+	mdb = SWITCHDEV_OBJ_PORT_MDB(info->obj);
+
+	if (event == SWITCHDEV_PORT_OBJ_ADD)
+		err = rtl8198c_mcast_mdb_add(p->sw, mdb->addr, p->fid, p->port);
+	else if (event == SWITCHDEV_PORT_OBJ_DEL)
+		err = rtl8198c_mcast_mdb_del(p->sw, mdb->addr, p->fid, p->port);
+	else
+		return NOTIFY_DONE;
+
+	info->handled = true;
+	return err ? notifier_from_errno(err) : NOTIFY_OK;
+}
+
 static int eth_switchdev_blocking_event(struct notifier_block *nb,
 					unsigned long event, void *ptr)
 {
 	struct net_device *dev = switchdev_notifier_info_to_dev(ptr);
 
-	if (event != SWITCHDEV_PORT_ATTR_SET ||
-	    dev->netdev_ops != &rtl8198c_eth_ops)
+	if (dev->netdev_ops != &rtl8198c_eth_ops)
 		return NOTIFY_DONE;
-	return eth_switchdev_port_attr(dev, ptr);
+	if (event == SWITCHDEV_PORT_ATTR_SET)
+		return eth_switchdev_port_attr(dev, ptr);
+	if (event == SWITCHDEV_PORT_OBJ_ADD || event == SWITCHDEV_PORT_OBJ_DEL)
+		return eth_switchdev_port_obj(dev, event, ptr);
+	return NOTIFY_DONE;
 }
 
 struct notifier_block rtl8198c_switchdev_nb = {
@@ -273,7 +365,10 @@ static int eth_netdev_event(struct notifier_block *nb, unsigned long event,
 
 	p = netdev_priv(dev);
 	if (netif_is_bridge_master(info->upper_dev)) {
-		eth_bridge_port(p->sw, p->port, info->linking);
+		if (info->linking)
+			eth_bridge_join(dev, netdev_notifier_info_to_extack(ptr));
+		else
+			eth_bridge_leave(dev);
 		return NOTIFY_DONE;
 	}
 
