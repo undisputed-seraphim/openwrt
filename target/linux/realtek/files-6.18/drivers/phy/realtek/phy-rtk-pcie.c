@@ -53,10 +53,21 @@ struct phy_data {
 
 struct phy_cfg {
 	struct phy_data gen1_param[MAX_PCIE_PHY_DATA_SIZE];
+	struct phy_data gen1_param_40m[MAX_PCIE_PHY_DATA_SIZE];
 	struct phy_data gen2_param[MAX_PCIE_PHY_DATA_SIZE];
 	bool do_toggle;
 	u32 mdio_reset_bit;
 	u32 disable_bit;
+	/*
+	 * RTL8198C: the MDIO reset and the PHY power control are driven by
+	 * the host controller, so only the tuning parameters are written
+	 * here.  The 40 MHz variant is selected through a strap register.
+	 */
+	bool mdio_tuning_only;
+	bool mdio_no_poll;
+	bool strap_select;
+	u32 strap_reg;
+	u32 strap_mask;
 };
 
 struct rtk_phy {
@@ -65,6 +76,7 @@ struct rtk_phy {
 	const struct phy_cfg *phy_cfg;
 	struct regmap *regmap;
 	struct regmap *pcie_misc_map;
+	struct regmap *sys_map;
 	struct reset_control *phy_rst;
 };
 
@@ -97,6 +109,11 @@ static int rtk_phy_write(struct rtk_phy *rtk_phy, u8 page, u8 addr, u16 data)
 			   PCIE_MDIO_CTRL_PHY_WRITE);
 	if (ret)
 		return ret;
+
+	if (rtk_phy->phy_cfg->mdio_no_poll) {
+		mdelay(1);
+		return 0;
+	}
 
 	return rtk_phy_poll_done_and_delay(rtk_phy->regmap);
 }
@@ -152,52 +169,79 @@ static int rtk_phy_init(struct phy *phy)
 {
 	struct rtk_phy *rtk_phy = phy_get_drvdata(phy);
 	const struct phy_cfg *phy_cfg = rtk_phy->phy_cfg;
+	const struct phy_data *gen1_param = phy_cfg->gen1_param;
+	bool is_40m = false;
 	int ret, i = 0;
+	u32 strap = 0;
 
-	/* PCIE phy mdio reset */
-	ret = regmap_clear_bits(rtk_phy->pcie_misc_map, 0, phy_cfg->disable_bit);
-	if (ret)
-		return ret;
+	if (phy_cfg->strap_select) {
+		ret = regmap_read(rtk_phy->sys_map, phy_cfg->strap_reg, &strap);
+		if (ret)
+			return ret;
 
-	ret = regmap_clear_bits(rtk_phy->pcie_misc_map, 0, phy_cfg->mdio_reset_bit);
-	if (ret)
-		return ret;
+		if (strap & phy_cfg->strap_mask) {
+			gen1_param = phy_cfg->gen1_param_40m;
+			is_40m = true;
+		}
+	}
 
-	ret = regmap_set_bits(rtk_phy->pcie_misc_map, 0, phy_cfg->mdio_reset_bit);
-	if (ret)
-		return ret;
+	if (!phy_cfg->mdio_tuning_only) {
+		/* PCIE phy mdio reset */
+		ret = regmap_clear_bits(rtk_phy->pcie_misc_map, 0,
+					phy_cfg->disable_bit);
+		if (ret)
+			return ret;
 
-	/* PCIE IP Reset */
-	ret = reset_control_deassert(rtk_phy->phy_rst);
-	if (ret)
-		return ret;
+		ret = regmap_clear_bits(rtk_phy->pcie_misc_map, 0,
+					phy_cfg->mdio_reset_bit);
+		if (ret)
+			return ret;
 
-	usleep_range(10000, 11000);
+		ret = regmap_set_bits(rtk_phy->pcie_misc_map, 0,
+				      phy_cfg->mdio_reset_bit);
+		if (ret)
+			return ret;
 
-	/* Pulse the active-low PCIe PHY reset bit to software reset the PHY */
-	ret = regmap_clear_bits(rtk_phy->regmap, PCIE_PHY_POWER_CTRL_REG, PHY_RESET_BIT);
-	if (ret)
-		goto err_assert_phy_reset;
+		/* PCIE IP Reset */
+		ret = reset_control_deassert(rtk_phy->phy_rst);
+		if (ret)
+			return ret;
 
-	/* TODO: Check if ENABLE_LTSSM_BIT need to set here */
-	ret = regmap_set_bits(rtk_phy->regmap, PCIE_PHY_POWER_CTRL_REG, PHY_RESET_BIT);
-	if (ret)
-		goto err_assert_phy_reset;
+		usleep_range(10000, 11000);
 
-	msleep(50);
+		/* Pulse the active-low PCIe PHY reset bit to software reset the PHY */
+		ret = regmap_clear_bits(rtk_phy->regmap,
+					PCIE_PHY_POWER_CTRL_REG,
+					PHY_RESET_BIT);
+		if (ret)
+			goto err_assert_phy_reset;
+
+		/* TODO: Check if ENABLE_LTSSM_BIT need to set here */
+		ret = regmap_set_bits(rtk_phy->regmap,
+				      PCIE_PHY_POWER_CTRL_REG,
+				      PHY_RESET_BIT);
+		if (ret)
+			goto err_assert_phy_reset;
+
+		msleep(50);
+	} else if (is_40m) {
+		msleep(500);
+	}
 
 	/* Set gen 1 parameters */
 	for (i = 0; i < ARRAY_SIZE(phy_cfg->gen1_param); i++) {
-		if (phy_cfg->gen1_param[i].page == 0 &&
-		    phy_cfg->gen1_param[i].addr == 0 &&
-		    phy_cfg->gen1_param[i].data == 0)
+		if (gen1_param[i].page == 0 && gen1_param[i].addr == 0 &&
+		    gen1_param[i].data == 0)
 			break;
 
-		ret = rtk_phy_write(rtk_phy, phy_cfg->gen1_param[i].page,
-				    phy_cfg->gen1_param[i].addr, phy_cfg->gen1_param[i].data);
+		ret = rtk_phy_write(rtk_phy, gen1_param[i].page,
+				    gen1_param[i].addr, gen1_param[i].data);
 		if (ret)
 			goto err_assert_phy_reset;
 	}
+
+	if (phy_cfg->mdio_tuning_only)
+		return 0;
 
 	/* toggle calibration for gen 1 parameters */
 	ret = rtk_phy_toggle_calibration(rtk_phy, PHY_GEN1_PAGE, PHY_ADDR_0X09);
@@ -212,7 +256,8 @@ static int rtk_phy_init(struct phy *phy)
 			break;
 
 		ret = rtk_phy_write(rtk_phy, phy_cfg->gen2_param[i].page,
-				    phy_cfg->gen2_param[i].addr, phy_cfg->gen2_param[i].data);
+				    phy_cfg->gen2_param[i].addr,
+				    phy_cfg->gen2_param[i].data);
 		if (ret)
 			goto err_assert_phy_reset;
 	}
@@ -234,6 +279,24 @@ err_assert_phy_reset:
 	return ret;
 }
 
+/*
+ * The RTL8198C host controller releases the PHY from reset between link up
+ * retries, so the reset pulse is exposed as a power on operation.  Bit 7 is
+ * the active low PHY reset and bit 0 enables the LTSSM; the BSP writes the
+ * complete register, so do the same here.
+ */
+static int rtk_phy_power_on(struct phy *phy)
+{
+	struct rtk_phy *rtk_phy = phy_get_drvdata(phy);
+	int ret;
+
+	ret = regmap_write(rtk_phy->regmap, PCIE_PHY_POWER_CTRL_REG, 0x01);
+	if (ret)
+		return ret;
+
+	return regmap_write(rtk_phy->regmap, PCIE_PHY_POWER_CTRL_REG, 0x81);
+}
+
 static int rtk_phy_exit(struct phy *phy)
 {
 	struct rtk_phy *rtk_phy = phy_get_drvdata(phy);
@@ -244,6 +307,7 @@ static int rtk_phy_exit(struct phy *phy)
 static const struct phy_ops ops = {
 	.init		= rtk_phy_init,
 	.exit		= rtk_phy_exit,
+	.power_on	= rtk_phy_power_on,
 	.owner		= THIS_MODULE,
 };
 
@@ -274,22 +338,35 @@ static int rtk_pcie_phy_probe(struct platform_device *pdev)
 	if (IS_ERR(rtk_phy->regmap))
 		return PTR_ERR(rtk_phy->regmap);
 
-	rtk_phy->pcie_misc_map = syscon_regmap_lookup_by_phandle(dev->of_node, "realtek,pcie-misc");
-	if (IS_ERR(rtk_phy->pcie_misc_map))
-		return dev_err_probe(dev, PTR_ERR(rtk_phy->pcie_misc_map),
-				     "Failed to map pcie-misc registers\n");
-
-	rtk_phy->phy_rst = devm_reset_control_array_get_optional_exclusive(dev);
-	if (IS_ERR(rtk_phy->phy_rst))
-		return dev_err_probe(dev, PTR_ERR(rtk_phy->phy_rst),
-				     "Failed to get pcie phy resets\n");
-
-	rtk_phy->dev = dev;
 	phy_cfg = of_device_get_match_data(dev);
 	if (!phy_cfg)
 		return dev_err_probe(dev, -EINVAL, "phy config are not assigned!\n");
 
 	rtk_phy->phy_cfg = phy_cfg;
+
+	if (phy_cfg->strap_select) {
+		rtk_phy->sys_map = syscon_regmap_lookup_by_phandle(dev->of_node,
+								   "realtek,sys");
+		if (IS_ERR(rtk_phy->sys_map))
+			return dev_err_probe(dev, PTR_ERR(rtk_phy->sys_map),
+					     "Failed to map system registers\n");
+	}
+
+	if (!phy_cfg->mdio_tuning_only) {
+		rtk_phy->pcie_misc_map =
+			syscon_regmap_lookup_by_phandle(dev->of_node,
+							"realtek,pcie-misc");
+		if (IS_ERR(rtk_phy->pcie_misc_map))
+			return dev_err_probe(dev, PTR_ERR(rtk_phy->pcie_misc_map),
+					     "Failed to map pcie-misc registers\n");
+
+		rtk_phy->phy_rst = devm_reset_control_array_get_optional_exclusive(dev);
+		if (IS_ERR(rtk_phy->phy_rst))
+			return dev_err_probe(dev, PTR_ERR(rtk_phy->phy_rst),
+					     "Failed to get pcie phy resets\n");
+	}
+
+	rtk_phy->dev = dev;
 
 	platform_set_drvdata(pdev, rtk_phy);
 
@@ -379,11 +456,33 @@ static const struct phy_cfg rtl9607c_revA_gen1x1_phy_cfg = {
 	.disable_bit = PCIE_PHY_CTRL_DIS1,
 };
 
+/*
+ * RTL8198C: the tuning values depend on the crystal frequency, which is
+ * reported by bit 24 of the SYS_STRAP register.  The 40 MHz variant also
+ * needs an extra delay for the PHY PLL to settle.
+ */
+static const struct phy_cfg rtl8198c_phy_cfg = {
+	.gen1_param = {
+		{0x0, 0x03, 0x3031}, {0x0, 0x06, 0xe058}, {0x0, 0x0f, 0x400f},
+		{0x0, 0x19, 0xfc70},
+	},
+	.gen1_param_40m = {
+		{0x0, 0x03, 0x7b31}, {0x0, 0x06, 0xe258}, {0x0, 0x0f, 0x400f},
+		{0x0, 0x0d, 0x1764}, {0x0, 0x19, 0xfc70},
+	},
+	.mdio_tuning_only = true,
+	.mdio_no_poll = true,
+	.strap_select = true,
+	.strap_reg = 0x08,
+	.strap_mask = BIT(24),
+};
+
 static const struct of_device_id rtk_pcie_phy_dt_match[] = {
 	{ .compatible = "realtek,rtl9607c-revA-gen1x1-pcie-phy", .data = &rtl9607c_revA_gen1x1_phy_cfg },
 	{ .compatible = "realtek,rtl9607c-revA-gen2x1-pcie-phy", .data = &rtl9607c_revA_gen2x1_phy_cfg },
 	{ .compatible = "realtek,rtl9607c-revB-gen1x1-pcie-phy", .data = &rtl9607c_revB_gen1x1_phy_cfg },
 	{ .compatible = "realtek,rtl9607c-revB-gen2x1-pcie-phy", .data = &rtl9607c_revB_gen2x1_phy_cfg },
+	{ .compatible = "realtek,rtl8198c-pcie-phy", .data = &rtl8198c_phy_cfg },
 	{},
 };
 MODULE_DEVICE_TABLE(of, rtk_pcie_phy_dt_match);
