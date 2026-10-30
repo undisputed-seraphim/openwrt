@@ -1,0 +1,26 @@
+--- a/drivers/net/Kconfig
++++ b/drivers/net/Kconfig
+@@ -3,6 +3,14 @@
+ # Network device configuration
+ #
+ 
++config NET_RTL8198C
++	bool
++	help
++	  Platform GMAC driver for Realtek RTL8198C SoC.
++	  Selected automatically by RTL8198C platform support.
++	  Defined here (not in ethernet/) to avoid the if ETHERNET
++	  gate pulling in NETDEVICES/NET when selected.
++
+ menuconfig NETDEVICES
+ 	default y if UML
+ 	depends on NET
+--- a/drivers/net/ethernet/Makefile
++++ b/drivers/net/ethernet/Makefile
+@@ -106,5 +106,6 @@ obj-$(CONFIG_NET_VENDOR_WIZNET) += wizne
+ obj-$(CONFIG_NET_VENDOR_XILINX) += xilinx/
+ obj-$(CONFIG_NET_VENDOR_XIRCOM) += xircom/
+ obj-$(CONFIG_NET_VENDOR_SYNOPSYS) += synopsys/
++obj-$(CONFIG_NET_RTL8198C) += rtl8198c/
+ obj-$(CONFIG_NET_VENDOR_PENSANDO) += pensando/
+ obj-$(CONFIG_OA_TC6) += oa_tc6.o
