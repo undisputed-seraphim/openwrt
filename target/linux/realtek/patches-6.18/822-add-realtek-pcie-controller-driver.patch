@@ -6,9 +6,9 @@
  
 +config PCIE_REALTEK
 +	bool "Realtek PCIe controller"
-+	depends on (MACH_REALTEK_RTL && RTL960X) || COMPILE_TEST
++	depends on (MACH_REALTEK_RTL && (RTL960X || RTL8198C)) || COMPILE_TEST
 +	select PHY_RTK_PCIEPHY
-+	default MACH_REALTEK_RTL && RTL960X
++	default MACH_REALTEK_RTL && (RTL960X || RTL8198C)
 +	help
 +	  Say Y here to enable PCIe controller support for the Realtek SoCs
 +	  like RTL9607C.
