@@ -1,0 +1,125 @@
+--- a/fs/jffs2/erase.c
++++ b/fs/jffs2/erase.c
+@@ -447,13 +447,25 @@
+ 		}
+ 	}
+ 	/* Everything else got zeroed before the erase */
+-	jeb->free_size = c->sector_size;
++	if (jffs2_reserve_cleanmarker_page(c)) {
++		/*
++		 * The OOB cleanmarker write also programs the first data
++		 * page (the controller has no spare-area-only DMA mode).
++		 * Reserve that page so data nodes start at page 1 and the
++		 * page is never programmed a second time.
++		 */
++		jeb->free_size = c->sector_size - c->mtd->writesize;
++		jeb->wasted_size = c->mtd->writesize;
++	} else {
++		jeb->free_size = c->sector_size;
++	}
+ 
+ 	mutex_lock(&c->erase_free_sem);
+ 	spin_lock(&c->erase_completion_lock);
+ 
+ 	c->erasing_size -= c->sector_size;
+-	c->free_size += c->sector_size;
++	c->free_size += jeb->free_size;
++	c->wasted_size += jeb->wasted_size;
+ 
+ 	/* Account for cleanmarker now, if it's in-band */
+ 	if (c->cleanmarker_size && !jffs2_cleanmarker_oob(c))
+--- a/fs/jffs2/nodelist.c
++++ b/fs/jffs2/nodelist.c
+@@ -611,7 +611,9 @@
+ 
+ 	if (!jeb->first_node) {
+ 		jeb->first_node = ref;
+-		BUG_ON(ref_offset(ref) != jeb->offset);
++		BUG_ON(ref_offset(ref) != jeb->offset &&
++		       !(jffs2_reserve_cleanmarker_page(c) &&
++			 ref_offset(ref) == jeb->offset + c->mtd->writesize));
+ 	} else if (unlikely(ref_offset(ref) != jeb->offset + c->sector_size - jeb->free_size)) {
+ 		uint32_t last_len = ref_totlen(c, jeb, jeb->last_node);
+ 
+--- a/fs/jffs2/nodemgmt.c
++++ b/fs/jffs2/nodemgmt.c
+@@ -460,7 +460,9 @@
+ 
+ 		jeb = c->nextblock;
+ 
+-		if (jeb->free_size != c->sector_size - c->cleanmarker_size) {
++		if (jeb->free_size != c->sector_size - c->cleanmarker_size &&
++		    !(jffs2_reserve_cleanmarker_page(c) &&
++		      jeb->free_size == c->sector_size - c->mtd->writesize)) {
+ 			pr_warn("Eep. Block 0x%08x taken from free_list had free_size of 0x%08x!!\n",
+ 				jeb->offset, jeb->free_size);
+ 			goto restart;
+--- a/fs/jffs2/os-linux.h
++++ b/fs/jffs2/os-linux.h
+@@ -141,6 +141,15 @@
+ 
+ #endif /* WRITEBUFFER */
+ 
++/*
++ * The OOB cleanmarker has to be paid for with the first data page when
++ * the NAND controller cannot write the spare area on its own.  Only the
++ * RTL8198C controller has that restriction; everywhere else keep the
++ * upstream accounting.
++ */
++#define jffs2_reserve_cleanmarker_page(c) \
++	(IS_ENABLED(CONFIG_RTL8198C) && jffs2_cleanmarker_oob(c))
++
+ /* background.c */
+ int jffs2_start_garbage_collect_thread(struct jffs2_sb_info *c);
+ void jffs2_stop_garbage_collect_thread(struct jffs2_sb_info *c);
+--- a/fs/jffs2/scan.c
++++ b/fs/jffs2/scan.c
+@@ -570,6 +570,15 @@
+ 		buf_len = c->sector_size;
+ 	} else {
+ 		buf_len = EMPTY_SCAN_SIZE(c->sector_size);
++		/*
++		 * With an OOB cleanmarker the first data page is reserved,
++		 * so data may start at page 1.  Scan past that page.
++		 */
++		if (jffs2_reserve_cleanmarker_page(c)) {
++			buf_len += c->mtd->writesize;
++			if (buf_len > buf_size)
++				buf_len = buf_size;
++		}
+ 		err = jffs2_fill_scan_buf(c, buf, buf_ofs, buf_len);
+ 		if (err)
+ 			return err;
+@@ -589,6 +598,11 @@
+ 	/* We temporarily use 'ofs' as a pointer into the buffer/jeb */
+ 	ofs = 0;
+ 	max_ofs = EMPTY_SCAN_SIZE(c->sector_size);
++	if (jffs2_reserve_cleanmarker_page(c)) {
++		max_ofs += c->mtd->writesize;
++		if (max_ofs > buf_len)
++			max_ofs = buf_len;
++	}
+ 	/* Scan only EMPTY_SCAN_SIZE of 0xFF before declaring it's empty */
+ 	while(ofs < max_ofs && *(uint32_t *)(&buf[ofs]) == 0xFFFFFFFF)
+ 		ofs += 4;
+@@ -601,7 +615,19 @@
+ 			jffs2_dbg(2, "jffs2_check_oob_empty returned %d\n",
+ 				  ret);
+ 			switch (ret) {
+-			case 0:		return cleanmarkerfound ? BLK_STATE_CLEANMARKER : BLK_STATE_ALLFF;
++			case 0:
++				if (cleanmarkerfound &&
++				    jffs2_reserve_cleanmarker_page(c)) {
++					/*
++					 * Page 0 was programmed by the OOB
++					 * cleanmarker write; reserve it.
++					 */
++					jeb->free_size -= c->mtd->writesize;
++					jeb->wasted_size += c->mtd->writesize;
++					c->free_size -= c->mtd->writesize;
++					c->wasted_size += c->mtd->writesize;
++				}
++				return cleanmarkerfound ? BLK_STATE_CLEANMARKER : BLK_STATE_ALLFF;
+ 			case 1: 	return BLK_STATE_ALLDIRTY;
+ 			default: 	return ret;
+ 			}
