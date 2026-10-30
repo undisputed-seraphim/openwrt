@@ -1,0 +1,22 @@
+--- a/drivers/gpio/gpio-realtek-otto.c
++++ b/drivers/gpio/gpio-realtek-otto.c
+@@ -339,6 +339,9 @@
+ 		.data = (void *)GPIO_INTERRUPTS_DISABLED,
+ 	},
+ 	{
++		.compatible = "realtek,rtl8198c-gpio",
++	},
++	{
+ 		.compatible = "realtek,rtl8380-gpio",
+ 	},
+ 	{
+--- a/Documentation/devicetree/bindings/gpio/realtek,otto-gpio.yaml
++++ b/Documentation/devicetree/bindings/gpio/realtek,otto-gpio.yaml
+@@ -26,6 +26,7 @@
+   compatible:
+     items:
+       - enum:
++          - realtek,rtl8198c-gpio
+           - realtek,rtl8380-gpio
+           - realtek,rtl8390-gpio
+           - realtek,rtl9300-gpio

@@ -1,0 +1,71 @@
+Subject: gpio: realtek-otto: select the GPIO function on RTL8198C
+
+The RTL8198C pin-select register (CNR) routes every pin either to the
+GPIO block (bit clear) or to its dedicated peripheral function (bit
+set).  The bootloader leaves almost every pin on the peripheral side
+(0x18003500 reads 0xffffffff and 0x1800351c reads 0xdffdbfff at boot),
+so a pin must be switched to the GPIO side before it can be used.
+
+Add a GPIO_PIN_SELECT quirk for the RTL8198C compatible and clear the
+pin's CNR bit when the line is requested.  This is what the BSP's
+rtl819x_gpio_pin_enable() does for the LED and button pins.
+
+--- a/drivers/gpio/gpio-realtek-otto.c
++++ b/drivers/gpio/gpio-realtek-otto.c
+@@ -96,6 +96,13 @@
+ 	 * range, where the per-cpu enable masks are located.
+ 	 */
+ 	GPIO_INTERRUPTS_PER_CPU = BIT(2),
++	/*
++	 * The pin select register (CNR) routes a pin to the GPIO block when
++	 * its bit is clear, and to the dedicated peripheral function when it
++	 * is set.  The bootloader leaves most pins on the peripheral side,
++	 * so the bit has to be cleared when a line is requested as GPIO.
++	 */
++	GPIO_PIN_SELECT = BIT(3),
+ };
+ 
+ static struct realtek_gpio_ctrl *irq_data_to_ctrl(struct irq_data *data)
+@@ -340,6 +347,7 @@
+ 	},
+ 	{
+ 		.compatible = "realtek,rtl8198c-gpio",
++		.data = (void *)GPIO_PIN_SELECT,
+ 	},
+ 	{
+ 		.compatible = "realtek,rtl8380-gpio",
+@@ -362,6 +370,24 @@
+ };
+ MODULE_DEVICE_TABLE(of, realtek_gpio_of_match);
+ 
++static int realtek_gpio_request(struct gpio_chip *gc, unsigned int offset)
++{
++	struct realtek_gpio_ctrl *ctrl = gpiochip_get_data(gc);
++	unsigned long flags;
++	u32 cnr;
++
++	if (offset >= gc->ngpio)
++		return -EINVAL;
++
++	raw_spin_lock_irqsave(&ctrl->lock, flags);
++	cnr = ctrl->bank_read(ctrl->base + REALTEK_GPIO_REG_CNR);
++	cnr &= ~BIT(offset);
++	ctrl->bank_write(ctrl->base + REALTEK_GPIO_REG_CNR, cnr);
++	raw_spin_unlock_irqrestore(&ctrl->lock, flags);
++
++	return 0;
++}
++
+ static int realtek_gpio_probe(struct platform_device *pdev)
+ {
+ 	struct gpio_generic_chip_config config;
+@@ -435,6 +461,9 @@
+ 	ctrl->chip.gc.ngpio = ngpios;
+ 	ctrl->chip.gc.owner = THIS_MODULE;
+ 
++	if (dev_flags & GPIO_PIN_SELECT)
++		ctrl->chip.gc.request = realtek_gpio_request;
++
+ 	irq = platform_get_irq_optional(pdev, 0);
+ 	if (!(dev_flags & GPIO_INTERRUPTS_DISABLED) && irq > 0) {
+ 		girq = &ctrl->chip.gc.irq;
