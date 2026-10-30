@@ -1,0 +1,66 @@
+--- a/drivers/net/wireless/realtek/rtw88/pci.c
++++ b/drivers/net/wireless/realtek/rtw88/pci.c
+@@ -52,15 +52,29 @@
+ static u8 rtw_pci_read8(struct rtw_dev *rtwdev, u32 addr)
+ {
+ 	struct rtw_pci *rtwpci = (struct rtw_pci *)rtwdev->priv;
++#if IS_ENABLED(CONFIG_RTL8198C)
++	u32 word_addr = addr & ~3;
++	u32 byte_shift = (addr & 3) << 3;
++	u32 val = readl(rtwpci->mmap + word_addr);
+ 
++	return (val >> byte_shift) & 0xff;
++#else
+ 	return readb(rtwpci->mmap + addr);
++#endif
+ }
+ 
+ static u16 rtw_pci_read16(struct rtw_dev *rtwdev, u32 addr)
+ {
+ 	struct rtw_pci *rtwpci = (struct rtw_pci *)rtwdev->priv;
++#if IS_ENABLED(CONFIG_RTL8198C)
++	u32 word_addr = addr & ~3;
++	u32 byte_shift = (addr & 3) << 3;
++	u32 val = readl(rtwpci->mmap + word_addr);
+ 
++	return (val >> byte_shift) & 0xffff;
++#else
+ 	return readw(rtwpci->mmap + addr);
++#endif
+ }
+ 
+ static u32 rtw_pci_read32(struct rtw_dev *rtwdev, u32 addr)
+@@ -73,15 +87,31 @@
+ static void rtw_pci_write8(struct rtw_dev *rtwdev, u32 addr, u8 val)
+ {
+ 	struct rtw_pci *rtwpci = (struct rtw_pci *)rtwdev->priv;
+-
++#if IS_ENABLED(CONFIG_RTL8198C)
++	u32 word_addr = addr & ~3;
++	u32 byte_shift = (addr & 3) << 3;
++	u32 data = readl(rtwpci->mmap + word_addr);
++
++	data = (data & ~(0xff << byte_shift)) | ((u32)val << byte_shift);
++	writel(data, rtwpci->mmap + word_addr);
++#else
+ 	writeb(val, rtwpci->mmap + addr);
++#endif
+ }
+ 
+ static void rtw_pci_write16(struct rtw_dev *rtwdev, u32 addr, u16 val)
+ {
+ 	struct rtw_pci *rtwpci = (struct rtw_pci *)rtwdev->priv;
+-
++#if IS_ENABLED(CONFIG_RTL8198C)
++	u32 word_addr = addr & ~3;
++	u32 byte_shift = (addr & 3) << 3;
++	u32 data = readl(rtwpci->mmap + word_addr);
++
++	data = (data & ~(0xffff << byte_shift)) | ((u32)val << byte_shift);
++	writel(data, rtwpci->mmap + word_addr);
++#else
+ 	writew(val, rtwpci->mmap + addr);
++#endif
+ }
+ 
+ static void rtw_pci_write32(struct rtw_dev *rtwdev, u32 addr, u32 val)
