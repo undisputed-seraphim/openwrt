@@ -1,0 +1,111 @@
+// SPDX-License-Identifier: GPL-2.0-or-later OR MIT
+
+#include <dt-bindings/gpio/gpio.h>
+
+#include "rtl8198c.dtsi"
+
+/ {
+	compatible = "askey,ap5100w", "realtek,rtl8198c-soc";
+	model = "Askey AP5100W";
+
+	/*
+	 * The bootloader reports 256 MiB DDR3
+	 * (memory: 10000000 @ 00000000).
+	 */
+	memory@0 {
+		device_type = "memory";
+		reg = <0x0 0x10000000>;
+	};
+
+	leds {
+		compatible = "gpio-leds";
+
+		led_wifi2g_red: wifi2g-red {
+			label = "red:wifi2g";
+			gpios = <&gpio0 15 GPIO_ACTIVE_LOW>;	/* GPIO 15, B7 */
+		};
+
+		led_wifi5g_red: wifi5g-red {
+			label = "red:wifi5g";
+			gpios = <&gpio0 23 GPIO_ACTIVE_LOW>;	/* GPIO 23, C7 */
+		};
+
+		led_wifi5g_green: wifi5g-green {
+			label = "green:wifi5g";
+			gpios = <&gpio1 24 GPIO_ACTIVE_LOW>;	/* GPIO 56, H0 */
+		};
+	};
+};
+
+/*
+ * NAND flash (Winbond W29N01HV, 128 MiB) detected by old BSP.
+ * Partitions from old kernel cmdline:
+ *   mtdparts=rtk_nand:5m@0x0(boot),3m@0x500000(setting),
+ *   6m@0x800000(linux),24m@0xe00000(rootfs),
+ *   6m@0x2600000(linux2),24m@0x2C00000(rootfs2),
+ *   38m@0x4400000(data),2m@0x6A00000(nvdata)
+ */
+
+&nand {
+	status = "okay";
+
+	nand-chip@0 {
+		reg = <0>;
+
+		partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			partition@0 {
+				label = "boot";
+				reg = <0x0000000 0x500000>;
+				read-only;
+			};
+
+			partition@500000 {
+				label = "setting";
+				reg = <0x0500000 0x300000>;
+			};
+
+			partition@800000 {
+				label = "linux";
+				reg = <0x0800000 0x600000>;
+			};
+
+			partition@e00000 {
+				label = "rootfs";
+				reg = <0x0e00000 0x1800000>;
+			};
+
+			partition@2600000 {
+				label = "linux2";
+				reg = <0x2600000 0x600000>;
+			};
+
+			partition@2c00000 {
+				label = "rootfs2";
+				reg = <0x2c00000 0x1800000>;
+			};
+
+			partition@4400000 {
+				label = "data";
+				reg = <0x4400000 0x2600000>;
+			};
+
+			partition@6a00000 {
+				label = "nvdata";
+				reg = <0x6a00000 0x200000>;
+			};
+		};
+	};
+};
+
+&eth {
+	status = "okay";
+	local-mac-address = [CA FE BA BE 00 00];
+};
+
+&xhci {
+	status = "okay";
+};
