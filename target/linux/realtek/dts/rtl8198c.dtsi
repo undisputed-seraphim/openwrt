@@ -187,7 +187,8 @@
 				<0 0 0 4 &gic GIC_SHARED 31 IRQ_TYPE_LEVEL_HIGH>;
 		interrupt-parent = <&gic>;
 		interrupts = <GIC_SHARED 31 IRQ_TYPE_LEVEL_HIGH>;
-		ranges = <0x02000000 0 0x19000000 0x19000000 0 0x01000000>; /* identity mapped pci memory */
+		ranges = <0x02000000 0 0x19000000 0x19000000 0 0x01000000>, /* identity mapped pci memory */
+			 <0x01000000 0 0x00000000 0x18c00000 0 0x00008000>; /* pci io, first half */
 		reg = <0x18b00000 0x1000>,	/* host config */
 		      <0x18b10000 0x2000>;	/* device config, one window per function */
 		reg-names = "hostcfg", "devcfg";
@@ -219,7 +220,8 @@
 				<0 0 0 4 &gic GIC_SHARED 32 IRQ_TYPE_LEVEL_HIGH>;
 		interrupt-parent = <&gic>;
 		interrupts = <GIC_SHARED 32 IRQ_TYPE_LEVEL_HIGH>;
-		ranges = <0x02000000 0 0x1a000000 0x1a000000 0 0x01000000>; /* identity mapped pci memory */
+		ranges = <0x02000000 0 0x1a000000 0x1a000000 0 0x01000000>, /* identity mapped pci memory */
+			 <0x01000000 0 0x00008000 0x18e00000 0 0x00008000>; /* pci io, second half */
 		reg = <0x18b20000 0x1000>,	/* host config */
 		      <0x18b30000 0x2000>;	/* device config, one window per function */
 		reg-names = "hostcfg", "devcfg";

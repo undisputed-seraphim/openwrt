@@ -5,7 +5,7 @@
  #
  
 -if ARCH_REALTEK || COMPILE_TEST
-+if ARCH_REALTEK || (MACH_REALTEK_RTL && RTL960X) || COMPILE_TEST
++if ARCH_REALTEK || (MACH_REALTEK_RTL && (RTL960X || RTL8198C)) || COMPILE_TEST
  
  config PHY_RTK_RTD_USB2PHY
  	tristate "Realtek RTD USB2 PHY Transceiver Driver"
@@ -23,7 +23,7 @@
 +	  This driver create the basic PHY instance and provides initialize
 +	  callback for PCIe port.
 +
-+endif # ARCH_REALTEK || (MACH_REALTEK_RTL && RTL960X) || COMPILE_TEST
++endif # ARCH_REALTEK || (MACH_REALTEK_RTL && (RTL960X || RTL8198C)) || COMPILE_TEST
 --- a/drivers/phy/realtek/Makefile
 +++ b/drivers/phy/realtek/Makefile
 @@ -1,3 +1,4 @@
