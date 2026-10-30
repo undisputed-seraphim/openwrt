@@ -80,6 +80,132 @@ struct rtl8198c_port {
 	u32			port;
 	u32			vid;	/* this port's VLAN (PVID) */
 	u32			fid;	/* its filtering database */
+	bool			offloaded;	/* bridge offload registered */
+};
+
+/* ===== L3 state =====
+ *
+ * One netif entry per VLAN: the switch looks the interface up by vid, and
+ * a second entry on the same vid stops the L3 stage from running at all.
+ * The MAC and MTU come from the netdev that holds the IPv4 address.
+ */
+#define L3_VIDS		8	/* netif table entries */
+#define L3_FIB_MAX	256	/* routes mirrored before giving up */
+#define L3_NEIGHS	128	/* resolved neighbours kept for ARP entries */
+#define L3_BLOCKS	8	/* on-link prefixes with an ARP block */
+#define L3_PINS		64	/* L2 entries the hardware depends on */
+#define L3_ARP_UNITS	(L3_ARPS / L3_ARP_STRIDE)
+
+struct rtl8198c_l3_vid {
+	u16	vid;
+	bool	used;
+	bool	route;			/* enHWRoute */
+	u8	mac[ETH_ALEN];
+	struct net_device *owner;	/* netdev holding the IPv4 address */
+};
+
+/* A route as the kernel sees it, kept only to decide what the hardware can
+ * be trusted with.  Rebuilt from a FIB dump on every change. */
+struct rtl8198c_l3_fib {
+	__be32	dst;
+	__be32	gw;
+	u32	dev;		/* nexthop ifindex */
+	u16	tb_id;
+	u8	len;
+	u8	type;		/* RTN_* */
+	u8	slot;		/* route table index, 0xff = not offloaded */
+	u8	dscp;
+	bool	nh_obj;
+	bool	lwt;		/* lightweight tunnel: CPU encapsulates */
+	u8	paths;		/* >1: multipath, would use one path only */
+};
+
+struct rtl8198c_l3_pin {
+	u8	mac[ETH_ALEN];
+	u8	fid;
+	bool	used;
+};
+
+/* A resolved neighbour, as ARP entries are written from the cache rather
+ * than by walking the kernel's table. */
+struct rtl8198c_l3_neigh {
+	__be32	ip;
+	u8	mac[ETH_ALEN];
+	u32	dev;		/* ifindex */
+	bool	valid;		/* NUD_VALID and not dead */
+};
+
+/* One on-link prefix owns a contiguous run of ARP entries; the hardware
+ * indexes it with the host part of the destination address. */
+struct rtl8198c_l3_block {
+	__be32	dst;
+	u32	dev;
+	u16	start;
+	u8	len;
+	u8	units;		/* 8-entry units */
+	bool	used;
+};
+
+struct rtl8198c_l3 {
+	bool	enabled;	/* route_offload knob, off by default */
+	bool	resyncing;	/* FIB dump in progress */
+	bool	registered;
+	bool	overflow;	/* FIB mirror full: offload nothing */
+	struct delayed_work work;
+	struct notifier_block fib_nb;
+	struct notifier_block neigh_nb;
+	struct notifier_block addr_nb;
+	struct rtl8198c_l3_fib fib[L3_FIB_MAX];
+	int	fib_count;
+	struct rtl8198c_l3_pin pin[L3_PINS];
+	struct rtl8198c_l3_neigh neigh[L3_NEIGHS];
+	spinlock_t neigh_lock;	/* netevent notifiers run in atomic context */
+	struct rtl8198c_l3_block block[L3_BLOCKS];
+	u8 block_used[L3_ARP_UNITS];
+	u16 arp_l2[L3_ARPS];	/* L2 slot per ARP entry, 0xffff = empty */
+	struct mutex lock;	/* protects the mirror and the vid table */
+};
+
+/* ===== L4 state (NAPT / flow offload) =====
+ *
+ * The hardware keeps the sessions; the driver keeps the tuple of every
+ * entry it installed, because a session entry does not store its own key:
+ * the lookup index is a hash of the 5-tuple and the entry only holds the
+ * rewrite.  Without the mirror a hash collision, or an entry left behind by
+ * an earlier session, is indistinguishable from one of ours.
+ *
+ * An external-IP entry is reference counted: one per NAT address, shared by
+ * every session that masquerades through it.
+ */
+struct rtl8198c_l4_tuple {
+	__be32	int_ip;
+	__be32	rem_ip;
+	__be32	ext_ip;
+	__be16	int_port;
+	__be16	rem_port;
+	__be16	ext_port;
+	bool	tcp;
+};
+
+struct rtl8198c_l4_extip {
+	__be32	ext_ip;
+	u8	users;
+	bool	used;
+};
+
+struct rtl8198c_l4_session {
+	struct rtl8198c_l4_tuple t;
+	unsigned long cookie[2];	/* nftables flow identities, one per dir */
+	u8	aging;		/* encoded idle timeout */
+	u8	ncookies;
+	bool	used;
+};
+
+struct rtl8198c_l4 {
+	bool	enabled;	/* MSCR.EN_L4 armed */
+	struct rtl8198c_l4_extip extip[L4_EXT_IPS];
+	struct rtl8198c_l4_session sess[L4_SESSIONS];
+	struct mutex lock;	/* serialises table access and the mirror */
 };
 
 struct rtl8198c_eth {
@@ -97,6 +223,10 @@ struct rtl8198c_eth {
 	u8	acl_end;		/* last entry of the chain (the catch-all) */
 	u8	acl_default;		/* action of the catch-all */
 	u8	port_mac[ETH_PORTS][ETH_ALEN];
+	u8	switch_id[ETH_ALEN];		/* stable id of this switch */
+	struct rtl8198c_l3_vid l3_vid[L3_VIDS];
+	struct rtl8198c_l3 l3;
+	struct rtl8198c_l4 l4;
 	u16	port_mtu[ETH_PORTS];		/* per-port netif-table MTU */
 	u16	pbvlan_vid[PBV_RULES][ETH_PORTS];	/* 0 = rule off */
 	u16	pbvlan_ethertype[2];			/* user rules 5/6 */
@@ -161,6 +291,22 @@ static inline void *kseg1(void *k0)
 static inline void cache_wb(void *addr, int size)
 { dma_cache_wback((unsigned long)addr, size); }
 
+/* ===== Table address encoding =====
+ *
+ * The switch tables compare an IPv4 address as the big-endian 32-bit word
+ * the hardware expects: 192.168.2.0 is 0xC0A80200
+ * in the entry.  On this little-endian CPU that is ntohl() of the __be32
+ * value. */
+static inline u32 ip_to_word(__be32 addr)
+{
+	return ntohl((__force u32)addr);
+}
+
+static inline __be32 word_to_ip(u32 word)
+{
+	return (__force __be32)htonl(word);
+}
+
 /* ===== Interfaces between the block files ===== */
 
 /* debugfs knobs, one initialiser per block */
@@ -193,18 +339,61 @@ int rtl8198c_eth_fdb_dump(struct sk_buff *skb, struct netlink_callback *cb, stru
 int rtl8198c_eth_vlan_rx_add_vid(struct net_device *dev, __be16 proto, u16 vid);
 int rtl8198c_eth_vlan_rx_kill_vid(struct net_device *dev, __be16 proto, u16 vid);
 int rtl8198c_l2_fdb_add(const u8 *mac, u8 member, u8 ext, bool to_cpu, u32 fid);
+int rtl8198c_l2_fdb_lookup(const u8 *mac, u32 fid, u16 *l2);
+int rtl8198c_l2_fdb_pin(const u8 *mac, u32 fid);
 int rtl8198c_l2_fdb_del(const u8 *mac, u32 fid);
-void rtl8198c_netif_table_write(struct rtl8198c_eth *eth, u32 idx, const u8 *mac, u32 vid);
+void rtl8198c_netif_table_write(struct rtl8198c_eth *eth, u32 idx, const u8 *mac, u32 vid, u32 mtu, bool route);
 void rtl8198c_netif_vlan_init(struct rtl8198c_eth *eth, const u8 macs[][ETH_ALEN]);
 void rtl8198c_switch_l2_init(const u8 macs[][ETH_ALEN]);
 void rtl8198c_taci_write_entry(u32 taa, const u32 e[8], u32 cmd_bits);
+void rtl8198c_taci_read_entry(u32 taa, u32 e[8]);
 void rtl8198c_stp_enable(bool on);
 void rtl8198c_stp_port_state(u32 port, u32 state);
 
 /* acl */
 void rtl8198c_acl_init(struct rtl8198c_eth *eth);
 
+/* l3 */
+void rtl8198c_l3_init(void);
+void rtl8198c_l3_netif_init(struct rtl8198c_eth *eth);
+void rtl8198c_l3_netif_sync(struct rtl8198c_eth *eth);
+void rtl8198c_l3_dev_update(struct rtl8198c_eth *eth, struct net_device *dev);
+int rtl8198c_l3_register(struct rtl8198c_eth *eth);
+void rtl8198c_l3_unregister(struct rtl8198c_eth *eth);
+void rtl8198c_l3_table_write(u32 tbl, u32 index, const u32 e[8]);
+void rtl8198c_l3_table_clear(u32 tbl, u32 count);
+void rtl8198c_l3_route_arp(u32 e[8], __be32 prefix, u8 len, u8 netif, bool internal, u16 start, u16 count);
+void rtl8198c_l3_route_l2(u32 e[8], __be32 prefix, u8 len, u8 netif, bool internal, u16 l2);
+void rtl8198c_l3_route_nexthop(u32 e[8], __be32 prefix, u8 len, bool internal, u8 start, u8 count);
+void rtl8198c_l3_route_cpu(u32 e[8], __be32 prefix, u8 len, u8 netif, bool internal);
+void rtl8198c_l3_route_drop(u32 e[8], __be32 prefix, u8 len, u8 netif, bool internal);
+void rtl8198c_l3_arp_build(u32 e[8], u16 l2, u8 aging);
+void rtl8198c_l3_nexthop_build(u32 e[8], u8 vid, u8 ip_index, u16 l2, bool pppoe);
+void rtl8198c_l3_extip_build(u32 e[8], __be32 int_ip, __be32 ext_ip, u8 nexthop, bool one2one, bool local_public);
+void rtl8198c_l3_debugfs_init(struct rtl8198c_eth *eth);
+
+/* l4 */
+void rtl8198c_l4_init(void);
+void rtl8198c_l4_engine(struct rtl8198c_eth *eth, bool on);
+void rtl8198c_l4_flush(struct rtl8198c_eth *eth);
+int rtl8198c_l4_flow_add(struct rtl8198c_eth *eth,
+			 const struct rtl8198c_l4_tuple *t, u32 aging);
+int rtl8198c_l4_flow_del(struct rtl8198c_eth *eth,
+			 const struct rtl8198c_l4_tuple *t);
+int rtl8198c_l4_setup_tc(struct net_device *dev, enum tc_setup_type type,
+			 void *type_data);
+u32 rtl8198c_l4_hash(bool tcp, __be32 sip, __be16 sport, __be32 dip,
+		     __be16 dport);
+void rtl8198c_l4_session_out(u32 e[8], __be32 int_ip, __be16 int_port,
+			     __be16 ext_port, u8 ext_idx, bool tcp, u8 aging);
+void rtl8198c_l4_session_in(u32 e[8], __be32 int_ip, __be16 int_port,
+			    __be32 rem_ip, __be16 rem_port, __be16 ext_port,
+			    bool tcp, u8 aging);
+void rtl8198c_l4_debugfs_init(struct rtl8198c_eth *eth);
+
 /* mcast */
+int rtl8198c_mcast_mdb_add(struct rtl8198c_eth *eth, const u8 *mac, u8 fid, u32 port);
+int rtl8198c_mcast_mdb_del(struct rtl8198c_eth *eth, const u8 *mac, u8 fid, u32 port);
 
 /* qos */
 void rtl8198c_port_egress_set(int port, u32 kbps);
