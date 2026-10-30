@@ -117,9 +117,8 @@ static void acl_program(struct rtl8198c_eth *eth)
 	sys_w32(DACLRCR, eth->acl_end | ((u32)eth->acl_end << 8) |
 		((u32)ACL_PERMIT_ALL << 16) | ((u32)ACL_PERMIT_ALL << 24));
 
-	for (i = 0; i < ETH_PORTS; i++)
-		rtl8198c_netif_table_write(eth, i, eth->port_mac[i],
-				  i ? VLAN_LAN : VLAN_WAN);
+	/* The netif entries carry the chain range; rebuild them per VID. */
+	rtl8198c_l3_netif_sync(eth);
 }
 
 void rtl8198c_acl_init(struct rtl8198c_eth *eth)
