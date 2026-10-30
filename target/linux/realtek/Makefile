@@ -24,5 +24,11 @@ DEFAULT_PACKAGES += \
 	odhcp6c \
 	uboot-envtools \
 
+# The RTL8198C buttons use the in-kernel gpio-keys-polled driver; the
+# out-of-tree module registers the same platform driver name and fails
+# to load with "Driver 'gpio-keys-polled' is already registered".
+ifeq ($(SUBTARGET),rtl8198c)
+DEFAULT_PACKAGES := $(filter-out kmod-gpio-button-hotplug,$(DEFAULT_PACKAGES))
+endif
 
 $(eval $(call BuildTarget))

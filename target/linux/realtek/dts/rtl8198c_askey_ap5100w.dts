@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later OR MIT
 
 #include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/linux-event-codes.h>
 
 #include "rtl8198c.dtsi"
 
@@ -33,6 +34,29 @@
 		led_wifi5g_green: wifi5g-green {
 			label = "green:wifi5g";
 			gpios = <&gpio1 24 GPIO_ACTIVE_LOW>;	/* GPIO 56, H0 */
+		};
+	};
+
+	keys {
+		compatible = "gpio-keys-polled";
+		poll-interval = <100>;
+
+		/*
+		 * The vendor button_check polls GPIOH5 and GPIOH6 through
+		 * /proc/statusgpio; both buttons are active low.
+		 */
+		button_reset {
+			label = "reset";
+			gpios = <&gpio1 29 GPIO_ACTIVE_LOW>;	/* GPIO 61, H5 */
+			linux,code = <KEY_RESTART>;
+			debounce-interval = <300>;
+		};
+
+		button_wps {
+			label = "wps";
+			gpios = <&gpio1 30 GPIO_ACTIVE_LOW>;	/* GPIO 62, H6 */
+			linux,code = <KEY_WPS_BUTTON>;
+			debounce-interval = <300>;
 		};
 	};
 };
