@@ -117,6 +117,11 @@ realtek_setup_macs()
 	zyxel,gs1920-24hp-v2)
 		lan_mac="$(get_mac_label)"
 		;;
+	askey,ap5100w)
+		lan_mac="$(get_mac_label)"
+		lan_mac_start=$lan_mac
+		eth0_mac=$lan_mac
+		;;
 	hasivo,f1100w-4sx-4xgt|\
 	hasivo,f1100w-4sx-4xgt-512mb|\
 	hasivo,f1100wp-4sx-4xgt|\
