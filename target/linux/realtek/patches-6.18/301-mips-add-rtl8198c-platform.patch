@@ -1,6 +1,6 @@
 --- a/arch/mips/Kconfig
 +++ b/arch/mips/Kconfig
-@@ -1107,6 +1107,20 @@
+@@ -1107,6 +1107,21 @@
  	select SYS_SUPPORTS_ZBOOT
  	select MIPS_EXTERNAL_TIMER
 
@@ -17,6 +17,7 @@
 +	select MIPS_EXTERNAL_TIMER
 +	select HAVE_PCI
 +	select PCI_DRIVERS_GENERIC
++	select NET_RTL8198C
 +
  source "arch/mips/alchemy/Kconfig"
  source "arch/mips/ath25/Kconfig"
