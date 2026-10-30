@@ -1,0 +1,11 @@
+#!/bin/sh
+
+uci set network.lan=interface
+# The cable in the test rig is in physical port 4 (netdev eth4).
+uci set network.lan.device='eth4'
+uci set network.lan.proto='static'
+uci set network.lan.ipaddr='192.168.2.2'
+uci set network.lan.netmask='255.255.255.0'
+uci commit network
+
+exit 0
