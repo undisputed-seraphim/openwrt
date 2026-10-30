@@ -37,6 +37,7 @@
 #define RTL931X_MAC_L2_GLOBAL_CTRL2	(0x1358)
 
 /* Definition of family IDs */
+#define RTL8190_FAMILY_ID		(0x8190)
 #define RTL8380_FAMILY_ID		(0x8380)
 #define RTL8390_FAMILY_ID		(0x8390)
 #define RTL9300_FAMILY_ID		(0x9300)

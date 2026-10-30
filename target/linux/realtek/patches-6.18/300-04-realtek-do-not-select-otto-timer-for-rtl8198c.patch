@@ -1,0 +1,11 @@
+--- a/arch/mips/Kconfig
++++ b/arch/mips/Kconfig
+@@ -712,7 +712,7 @@ config MACH_REALTEK_RTL
+ 	select BOOT_RAW
+ 	select PINCTRL
+ 	select USE_OF
+-	select REALTEK_OTTO_TIMER
++	select REALTEK_OTTO_TIMER if !RTL8198C
+ 	select NO_EXCEPT_FILL
+ 	select SYS_SUPPORTS_HIGHMEM
+ 	select SYS_HAS_EARLY_PRINTK

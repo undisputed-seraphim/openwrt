@@ -9,22 +9,15 @@ for proper initialization. Add what is needed.
 Signed-off-by: Markus Stockhausen <markus.stockhausen@gmx.de>
 ---
 
---- a/arch/mips/generic/Platform
-+++ b/arch/mips/generic/Platform
-@@ -10,6 +10,7 @@
- 
- # Note: order matters, keep the asm/mach-generic include last.
- cflags-$(CONFIG_MACH_INGENIC_SOC)	+= -I$(srctree)/arch/mips/include/asm/mach-ingenic
-+cflags-$(CONFIG_MACH_REALTEK_RTL)	+= -I$(srctree)/arch/mips/include/asm/mach-rtl-otto
- cflags-$(CONFIG_MIPS_GENERIC)	+= -I$(srctree)/arch/mips/include/asm/mach-generic
- 
- load-$(CONFIG_MIPS_GENERIC)	+= 0xffffffff80100000
+
 --- a/arch/mips/generic/board-realtek.c
 +++ b/arch/mips/generic/board-realtek.c
-@@ -11,6 +11,303 @@
+@@ -10,6 +10,317 @@
+ 
  #include <asm/fw/fw.h>
  #include <asm/machine.h>
- 
++#include <asm/reboot.h>
++
 +#include <mach-rtl-otto.h>
 +
 +#define RTL_SOC_BASE			((volatile void *) 0xB8000000)
@@ -51,13 +44,17 @@ Signed-off-by: Markus Stockhausen <markus.stockhausen@gmx.de>
 +	u32 model_info_reg;
 +	u32 family;
 +	int cpu_port;
++	const char *name;
 +	void (*read_details)(u32 model);
 +	void (*apply_quirks)(const void *fdt);
 +	void (*get_memory)(void);
 +	void (*prepare_highmem)(void);
++	void (*restart)(char *command);
 +};
 +
 +struct rtl83xx_soc_info soc_info;
++
++static const void *realtek_fdt;
 +
 +static unsigned int __init realtek_measure_hpt_freq(void)
 +{
@@ -177,10 +174,16 @@ Signed-off-by: Markus Stockhausen <markus.stockhausen@gmx.de>
 +	soc_info.revision = model & 0xf;
 +}
 +
-+static void __init realtek_parse_model(u32 model)
++static void __init realtek_parse_model(const struct realtek_soc_data *cfg,
++				       u32 model)
 +{
 +	int val;
 +	char suffix = 0;
++
++	if (cfg->name) {
++		snprintf(soc_info.name, sizeof(soc_info.name), "%s", cfg->name);
++		return;
++	}
 +
 +	val = (model >> 11) & 0x1f;
 +	if (val > 0 && val <= 26)
@@ -303,12 +306,15 @@ Signed-off-by: Markus Stockhausen <markus.stockhausen@gmx.de>
 +		cfg->apply_quirks(fdt);
 +
 +	cfg->read_details(model);
-+	realtek_parse_model(model);
++	realtek_parse_model(cfg, model);
 +	realtek_set_system_type();
 +	cfg->get_memory();
 +
 +	if (cfg->prepare_highmem)
 +		cfg->prepare_highmem();
++
++	if (cfg->restart)
++		_machine_restart = cfg->restart;
 +
 +	pr_info("%s SoC with %d MB\n", get_system_type(), soc_info.memory_size >> 20);
 +
@@ -321,11 +327,10 @@ Signed-off-by: Markus Stockhausen <markus.stockhausen@gmx.de>
 +		fw_arg2 = 0;
 +}
 +
-+
+ 
  static __init int realtek_add_initrd(void *fdt)
  {
- 	int node, err;
-@@ -55,9 +352,22 @@ static __init const void *realtek_fixup_
+@@ -55,9 +366,23 @@
  	static unsigned char fdt_buf[16 << 10] __initdata;
  	int err;
  
@@ -343,15 +348,67 @@ Signed-off-by: Markus Stockhausen <markus.stockhausen@gmx.de>
  	if (fdt_check_header(fdt))
  		panic("Corrupt DT");
  
++	realtek_fdt = fdt;
 +	realtek_prom_init(fdt, match_data);
 +
  	fw_init_cmdline();
  
  	err = apply_mips_fdt_fixups(fdt_buf, sizeof(fdt_buf), fdt, realtek_fdt_fixups);
-@@ -68,12 +378,78 @@ static __init const void *realtek_fixup_
+@@ -68,12 +393,130 @@
  
  }
  
++static void __init rtl8198c_read_details(u32 model)
++{
++	/*
++	 * Unlike the switch SoCs the model information of the router SoC
++	 * lives in the SoC register block, not in the switch register
++	 * window used by the generic code.
++	 */
++	model = soc_r32(0x0000);
++
++	soc_info.id = model >> 16 & 0xffff;
++	soc_info.cpu = soc_info.id;
++	soc_info.revision = 0;
++}
++
++static void __init rtl8198c_get_system_memory(void)
++{
++	const __be32 *reg;
++	int node, len;
++	u64 size = 0;
++
++	node = fdt_path_offset(realtek_fdt, "/memory");
++	if (node >= 0) {
++		reg = fdt_getprop(realtek_fdt, node, "reg", &len);
++		if (reg && len >= 16)
++			size = ((u64)fdt32_to_cpu(reg[2]) << 32) |
++			       fdt32_to_cpu(reg[3]);
++		else if (reg && len >= 8)
++			size = fdt32_to_cpu(reg[1]);
++	}
++
++	soc_info.memory_size = size;
++}
++
++static void rtl8198c_restart(char *command)
++{
++	/* Same mechanism as the BSP: mask the interrupts and let the
++	 * watchdog reset the SoC.
++	 */
++	soc_w32(0, 0x3000);		/* GIMR */
++	soc_w32(1 << 16, 0x3118);	/* CDBR: undivided LX clock */
++	soc_w32(0, 0x311c);		/* WDTCNR: reset */
++}
++
++static const struct realtek_soc_data rtl8198c_soc __initconst = {
++	.name = "RTL8198C",
++	.family = RTL8190_FAMILY_ID,
++	.read_details = rtl8198c_read_details,
++	.get_memory = rtl8198c_get_system_memory,
++	.restart = rtl8198c_restart,
++};
++
 +static const struct realtek_soc_data rtl838x_soc __initconst = {
 +	.model_info_reg = RTL838X_MODEL_NAME_INFO,
 +	.family = RTL8380_FAMILY_ID,
@@ -416,6 +473,7 @@ Signed-off-by: Markus Stockhausen <markus.stockhausen@gmx.de>
 +	{ .compatible = "realtek,rtl9312-soc", .data = &rtl931x_soc },
 +	{ .compatible = "realtek,rtl9313-soc", .data = &rtl931x_soc },
 +	{ .compatible = "realtek,rtl931x-soc", .data = &rtl931x_soc },
++	{ .compatible = "realtek,rtl8198c-soc", .data = &rtl8198c_soc },
 +	{ .compatible = "realtek,rtl8198d-soc", .data = &rtl960x_soc },
 +	{ .compatible = "realtek,rtl9607-soc", .data = &rtl960x_soc },
 +	{ .compatible = "realtek,rtl9607c-soc", .data = &rtl960x_soc },
@@ -428,3 +486,14 @@ Signed-off-by: Markus Stockhausen <markus.stockhausen@gmx.de>
  	.fixup_fdt = realtek_fixup_fdt,
 +	.measure_hpt_freq = realtek_measure_hpt_freq,
  };
+--- a/arch/mips/generic/Platform
++++ b/arch/mips/generic/Platform
+@@ -10,6 +10,8 @@
+ 
+ # Note: order matters, keep the asm/mach-generic include last.
+ cflags-$(CONFIG_MACH_INGENIC_SOC)	+= -I$(srctree)/arch/mips/include/asm/mach-ingenic
++cflags-$(CONFIG_RTL8198C)		+= -I$(srctree)/arch/mips/include/asm/mach-rtl8198c
++cflags-$(CONFIG_MACH_REALTEK_RTL)	+= -I$(srctree)/arch/mips/include/asm/mach-rtl-otto
+ cflags-$(CONFIG_MIPS_GENERIC)	+= -I$(srctree)/arch/mips/include/asm/mach-generic
+ 
+ load-$(CONFIG_MIPS_GENERIC)	+= 0xffffffff80100000
