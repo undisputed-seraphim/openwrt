@@ -76,6 +76,7 @@ OBJDUMP		:= $(CROSS_COMPILE)objdump
 CFLAGS		= -fpic -mabicalls -O2 -fno-builtin-printf -Iinclude
 CFLAGS		+= -DFLASH_ADDR=$(FLASH_ADDR)
 CFLAGS		+= -DKERNEL_ADDR=$(KERNEL_ADDR)
+CFLAGS		+= $(CFLAGS_EXTRA)
 
 ASFLAGS		= -fpic -msoft-float -Iinclude
 

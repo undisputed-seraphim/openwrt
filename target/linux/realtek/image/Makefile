@@ -38,6 +38,14 @@ define Build/rt-compress
 	mv "$@.new" "$@"
 endef
 
+define Build/rt-loader-rtl8198c
+	$(MAKE) all clean -C rt-loader CROSS_COMPILE="$(TARGET_CROSS)" \
+		CFLAGS_EXTRA="-DCONFIG_CACHELINE_SIZE=32 -DRTL8198C_MEMORY_SIZE=268435456" \
+		KERNEL_ADDR=$(LOADADDR) \
+		KERNEL_IMG_IN="$@" KERNEL_IMG_OUT="$@.new" BUILD_DIR="$@.build"
+	mv "$@.new" "$@"
+endef
+
 define Build/rt-loader
 	$(MAKE) all clean -C rt-loader CROSS_COMPILE="$(TARGET_CROSS)" \
 		KERNEL_IMG_IN="$@" KERNEL_IMG_OUT="$@.new" BUILD_DIR="$@.build"
