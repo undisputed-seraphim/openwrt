@@ -1,0 +1,39 @@
+--- a/sound/soc/codecs/Kconfig
++++ b/sound/soc/codecs/Kconfig
+@@ -203,6 +203,7 @@ config SND_SOC_ALL_CODECS
+ 	imply SND_SOC_RT1308
+ 	imply SND_SOC_RT5514
+ 	imply SND_SOC_RT5616
++	imply SND_SOC_RT5628
+ 	imply SND_SOC_RT5631
+ 	imply SND_SOC_RT5640
+ 	imply SND_SOC_RT5645
+@@ -1657,6 +1658,10 @@ config SND_SOC_RT5616
+ 	tristate "Realtek RT5616 CODEC"
+ 	depends on I2C
+ 
++config SND_SOC_RT5628
++	tristate "Realtek ALC5628/RT5628 CODEC"
++	depends on I2C
++
+ config SND_SOC_RT5631
+ 	tristate "Realtek ALC5631/RT5631 CODEC"
+ 	depends on I2C
+--- a/sound/soc/codecs/Makefile
++++ b/sound/soc/codecs/Makefile
+@@ -239,6 +239,7 @@ snd-soc-rt298-y := rt298.o
+ snd-soc-rt5514-y := rt5514.o
+ snd-soc-rt5514-spi-y := rt5514-spi.o
+ snd-soc-rt5616-y := rt5616.o
++snd-soc-rt5628-y := rt5628.o
+ snd-soc-rt5631-y := rt5631.o
+ snd-soc-rt5640-y := rt5640.o
+ snd-soc-rt5645-y := rt5645.o
+@@ -645,6 +646,7 @@ obj-$(CONFIG_SND_SOC_RT5514)	+= snd-soc-
+ obj-$(CONFIG_SND_SOC_RT5514_SPI)	+= snd-soc-rt5514-spi.o
+ obj-$(CONFIG_SND_SOC_RT5514_SPI_BUILTIN)	+= snd-soc-rt5514-spi.o
+ obj-$(CONFIG_SND_SOC_RT5616)	+= snd-soc-rt5616.o
++obj-$(CONFIG_SND_SOC_RT5628)	+= snd-soc-rt5628.o
+ obj-$(CONFIG_SND_SOC_RT5631)	+= snd-soc-rt5631.o
+ obj-$(CONFIG_SND_SOC_RT5640)	+= snd-soc-rt5640.o
+ obj-$(CONFIG_SND_SOC_RT5645)	+= snd-soc-rt5645.o
