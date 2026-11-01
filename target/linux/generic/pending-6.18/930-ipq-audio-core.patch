@@ -1,0 +1,45 @@
+--- a/sound/soc/qcom/Kconfig
++++ b/sound/soc/qcom/Kconfig
+@@ -236,3 +236,35 @@
+ 	  Say Y or M if you want to use audio device on this SoCs.
+ 
+ endif #SND_SOC_QCOM
++
++config SND_SOC_IPQ
++	tristate "SoC Audio support for IPQ platforms"
++	depends on SND_SOC_QCOM && HAS_DMA
++	select SND_SOC_IPQ_ADSS
++	select SND_SOC_IPQ_CPU_DAI
++	select SND_SOC_IPQ_STEREO
++	select SND_SOC_IPQ_MBOX
++	select SND_SOC_IPQ_PCM_I2S
++	help
++	  Say Y or M if you want to add support for SoC audio on
++	  Qualcomm Atheros IPQ based boards.
++
++config SND_SOC_IPQ_ADSS
++	tristate
++	depends on SND_SOC_IPQ
++
++config SND_SOC_IPQ_CPU_DAI
++	tristate
++	depends on SND_SOC_IPQ
++
++config SND_SOC_IPQ_STEREO
++	tristate
++	depends on SND_SOC_IPQ
++
++config SND_SOC_IPQ_MBOX
++	tristate
++	depends on SND_SOC_IPQ
++
++config SND_SOC_IPQ_PCM_I2S
++	tristate
++	depends on SND_SOC_IPQ
+--- a/sound/soc/qcom/Makefile
++++ b/sound/soc/qcom/Makefile
+@@ -45,3 +45,4 @@
+ 
+ #DSP lib
+ obj-$(CONFIG_SND_SOC_QDSP6) += qdsp6/
++obj-$(CONFIG_SND_SOC_IPQ) += ipq/
