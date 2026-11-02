@@ -1,0 +1,25 @@
+#!/bin/sh
+# Give the RTL8814AE radios the MAC addresses the vendor keeps in NVRAM.
+#
+# rtw88 reads the station address from the module efuse, which Askey
+# leaves unprogrammed, so the driver invents a random one at probe.  The
+# real address is stored in the nvdata partition: wlan1aphwaddr for the
+# 2.4 GHz module on PCIe port 0 and wlanaphwaddr for the 5 GHz module on
+# port 1.
+
+[ "$ACTION" = add ] || exit 0
+[ -x /usr/sbin/ap5100w-nvram ] || exit 0
+
+case "$DEVICENAME" in
+wlan*)
+	dev=$(readlink -f "/sys/class/net/$DEVICENAME/device")
+	case "${dev##*/}" in
+	0000:00:01.0) key=wlan1aphwaddr ;;	# PCIe port 0, 2.4 GHz
+	0001:00:01.0) key=wlanaphwaddr ;;	# PCIe port 1, 5 GHz
+	*) exit 0 ;;
+	esac
+	mac=$(/usr/sbin/ap5100w-nvram "$key") || exit 0
+	[ -n "$mac" ] || exit 0
+	ip link set dev "$DEVICENAME" address "$mac"
+	;;
+esac

@@ -1,0 +1,37 @@
+#!/bin/sh
+# Read a key from the vendor NVRAM block kept in the "nvdata" partition.
+#
+# The Askey firmware stores three 128 KiB copies of NUL-separated
+# key=value pairs near the end of the 2 MiB nvdata partition.  The Wi-Fi
+# MAC addresses only exist there: the RTL8814AE modules are shipped with
+# an unprogrammed efuse, which is why rtw88 falls back to a random
+# address.
+
+usage() {
+	echo "usage: ${0##*/} <key>" >&2
+	exit 1
+}
+
+[ -n "$1" ] || usage
+key="$1"
+
+index=$(sed -n 's/^mtd\([0-9]*\): [0-9a-f]* [0-9a-f]* "nvdata"$/\1/p' /proc/mtd)
+[ -n "$index" ] || exit 1
+
+device="/dev/mtd$index"
+cache="/tmp/.nvdata.$index"
+
+dump() {
+	dd if="$device" bs=4096 2>/dev/null | tr '\000\377' '\n\n'
+}
+
+if [ -s "$cache" ]; then
+	value=$(grep -m1 "^$key=" "$cache" | cut -d= -f2-)
+elif dump > "$cache.$$" 2>/dev/null && mv "$cache.$$" "$cache"; then
+	value=$(grep -m1 "^$key=" "$cache" | cut -d= -f2-)
+else
+	value=$(dump | grep -m1 "^$key=" | cut -d= -f2-)
+fi
+
+[ -n "$value" ] || exit 1
+printf '%s\n' "$value"
