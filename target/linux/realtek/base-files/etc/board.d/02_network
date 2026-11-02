@@ -228,9 +228,15 @@ realtek_setup_macs()
 		lan_mac="$(get_mac_label)"
 		;;
 	askey,ap5100w)
-		lan_mac="$(get_mac_label)"
-		lan_mac_start=$lan_mac
+		# The factory LAN MAC is kept in the vendor nvdata partition.
+		# Read it through /dev/mtd8: mtd_get_mac_ascii() uses
+		# find_mtd_part(), which hands back /dev/mtdblock8 and makes
+		# mtdblock warn that a NAND device is not a UBI volume.
+		# Do not hand out a per-port sequence from here either: the
+		# next addresses are the Wi-Fi base and VAP addresses.
+		lan_mac="$(/usr/sbin/ap5100w-nvram lanhwaddr)"
 		eth0_mac=$lan_mac
+		label_mac=$lan_mac
 		;;
 	datto,l8|\
 	edgecore,ecs2100-52t|\

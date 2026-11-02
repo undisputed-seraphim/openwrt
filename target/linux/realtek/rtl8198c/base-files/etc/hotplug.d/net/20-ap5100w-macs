@@ -1,0 +1,55 @@
+#!/bin/sh
+# Give the RTL8814AE radios the MAC addresses the vendor keeps in NVRAM.
+#
+# rtw88 reads the station address from the module efuse, which Askey
+# leaves unprogrammed, so the driver invents a random one at probe.  The
+# real addresses are stored in the nvdata partition: wlan1aphwaddr for
+# the 2.4 GHz module on PCIe port 0 and wlanaphwaddr for the 5 GHz
+# module on port 1, followed by the per-VAP addresses.
+#
+# The primary path is wireless.<radio>.macaddr_base, which the wifi
+# scripts turn into base, base + 1, ... for phyX-ap0, phyX-ap1, ... at
+# interface creation.  This hook is the fallback for interfaces that are
+# created without that option (manual iw, an older config, ...).
+
+[ "$ACTION" = add ] || exit 0
+[ -x /usr/sbin/ap5100w-nvram ] || exit 0
+
+ifname=${DEVICENAME:-$INTERFACE}
+case "$ifname" in
+*-ap[0-9]*) vap=${ifname##*-ap} ;;
+ap[0-9]*) vap=${ifname#ap} ;;
+wlan*-[0-9]*) vap=${ifname##*-} ;;
+wlan*) vap=0 ;;
+*) exit 0 ;;
+esac
+case "$vap" in
+''|*[!0-9]*) exit 0 ;;
+esac
+
+# The sysfs "device" link of a netdev is not necessarily in place when
+# the hotplug event arrives, so prefer the path from the uevent.
+devpath=${DEVPATH:-}
+[ -n "$devpath" ] || devpath=$(readlink -f "/sys/class/net/$ifname/device")
+
+case "$devpath" in
+*0000:00:01.0*|*0000:01:00.0*) key=wlan1aphwaddr ;;	# PCIe port 0, 2.4 GHz
+*0001:00:01.0*|*0001:01:00.0*) key=wlanaphwaddr ;;	# PCIe port 1, 5 GHz
+*) exit 0 ;;
+esac
+
+mac=$(/usr/sbin/ap5100w-nvram "$key") || exit 0
+[ -n "$mac" ] || exit 0
+
+# phy0-ap0 gets the base address and phy0-ap1..3 the next three, which
+# matches wlan1vap0..2 / wlanvap0..2 from nvdata.  Leave anything past
+# the vendor VAP block to mac80211 so it cannot collide with the other
+# radio's base addresses.
+[ "$vap" -le 3 ] || exit 0
+if [ "$vap" -gt 0 ]; then
+	last=$((0x${mac##*:} + vap))
+	[ "$last" -le 255 ] || exit 0
+	mac="${mac%:*}:$(printf '%02x' "$last")"
+fi
+
+ip link set dev "$ifname" address "$mac"
