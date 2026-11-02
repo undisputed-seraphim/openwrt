@@ -1,0 +1,17 @@
+--- a/drivers/net/wireless/realtek/rtw88/main.c
++++ b/drivers/net/wireless/realtek/rtw88/main.c
+@@ -2059,6 +2059,14 @@
+ 	efuse->ext_pa_5g = efuse->pa_type_5g & BIT(0) ? 1 : 0;
+ 	efuse->ext_lna_5g = efuse->lna_type_5g & BIT(3) ? 1 : 0;
+ 
++	/* local bring-up debug - yanked with 999-rtl8198c-debug-efuse.patch */
++	rtw_info(rtwdev,
++		 "efuse: rfe_option=%u pa_2g=%#x pa_5g=%#x lna_2g=%#x lna_5g=%#x ext_pa_2g=%u ext_lna_2g=%u ext_pa_5g=%u ext_lna_5g=%u mac=%pM\n",
++		 efuse->rfe_option, efuse->pa_type_2g, efuse->pa_type_5g,
++		 efuse->lna_type_2g, efuse->lna_type_5g,
++		 efuse->ext_pa_2g, efuse->ext_lna_2g,
++		 efuse->ext_pa_5g, efuse->ext_lna_5g, efuse->addr);
++
+ 	if (!is_valid_ether_addr(efuse->addr)) {
+ 		eth_random_addr(efuse->addr);
+ 		dev_warn(rtwdev->dev, "efuse MAC invalid, using random\n");
