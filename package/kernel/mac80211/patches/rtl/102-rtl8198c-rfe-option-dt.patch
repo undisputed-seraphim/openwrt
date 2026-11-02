@@ -1,0 +1,58 @@
+--- a/drivers/net/wireless/realtek/rtw88/rtw8814a.c
++++ b/drivers/net/wireless/realtek/rtw88/rtw8814a.c
+@@ -2,6 +2,7 @@
+ /* Copyright(c) 2025  Realtek Corporation
+  */
+ 
++#include <linux/of.h>
+ #include <linux/usb.h>
+ #include "main.h"
+ #include "coex.h"
+@@ -126,6 +127,39 @@
+ 		efuse->hw_cap.ant_num, efuse->hw_cap.nss);
+ }
+ 
++/*
++ * Some boards populate the RF front end in a way the module efuse does not
++ * describe.  Allow the board device tree to name the RFE option instead,
++ * but only accept an option this chip has power tables for.
++ */
++#if IS_ENABLED(CONFIG_OF)
++static void rtw8814a_apply_rfe_override(struct rtw_dev *rtwdev)
++{
++	struct device_node *np = rtwdev->dev->of_node;
++	u32 rfe_option;
++
++	if (!np || of_property_read_u32(np, "realtek,wifi-rfe-option",
++					&rfe_option)) {
++		np = of_root;
++		if (!np || of_property_read_u32(np, "realtek,wifi-rfe-option",
++						&rfe_option))
++			return;
++	}
++
++	if (rfe_option >= rtwdev->chip->rfe_defs_size) {
++		rtw_warn(rtwdev, "ignoring unsupported RFE option %u\n",
++			 rfe_option);
++		return;
++	}
++
++	rtwdev->efuse.rfe_option = rfe_option;
++}
++#else
++static void rtw8814a_apply_rfe_override(struct rtw_dev *rtwdev)
++{
++}
++#endif
++
+ static int rtw8814a_read_efuse(struct rtw_dev *rtwdev, u8 *log_map)
+ {
+ 	struct rtw_efuse *efuse = &rtwdev->efuse;
+@@ -140,6 +174,7 @@
+ 
+ 	efuse->usb_mode_switch = u8_get_bits(map->usb_mode, BIT(4));
+ 	efuse->rfe_option = map->rfe_option;
++	rtw8814a_apply_rfe_override(rtwdev);
+ 	efuse->rf_board_option = map->rf_board_option;
+ 	efuse->crystal_cap = map->xtal_k;
+ 	efuse->channel_plan = map->channel_plan;
