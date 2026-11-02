@@ -10,6 +10,13 @@
 	model = "Askey AP5100W";
 
 	/*
+	 * Both RTL8814AE modules are wired for external PA/LNA on both
+	 * bands, which Realtek calls RFE type 2.  The module efuse does
+	 * not always carry that, so tell rtw88 explicitly.
+	 */
+	realtek,wifi-rfe-option = <2>;
+
+	/*
 	 * The bootloader reports 256 MiB DDR3
 	 * (memory: 10000000 @ 00000000).
 	 */

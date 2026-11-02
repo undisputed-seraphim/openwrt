@@ -1,0 +1,50 @@
+--- a/drivers/net/wireless/realtek/rtw88/rtw8814a.c
++++ b/drivers/net/wireless/realtek/rtw88/rtw8814a.c
+@@ -2,6 +2,7 @@
+ /* Copyright(c) 2025  Realtek Corporation
+  */
+ 
++#include <linux/of.h>
+ #include <linux/usb.h>
+ #include "main.h"
+ #include "coex.h"
+@@ -126,6 +127,31 @@
+ 		efuse->hw_cap.ant_num, efuse->hw_cap.nss);
+ }
+ 
++/*
++ * Some boards populate the RF front end in a way the module efuse does not
++ * describe (the AP5100W uses external PA/LNA on both bands).  Allow the
++ * board device tree to name the RFE option instead.
++ */
++#if IS_ENABLED(CONFIG_OF)
++static void rtw8814a_apply_rfe_override(struct rtw_dev *rtwdev)
++{
++	struct device_node *np = rtwdev->dev->of_node;
++	u8 rfe_option;
++
++	if (!np)
++		np = of_root;
++	if (!np)
++		return;
++
++	if (!of_property_read_u8(np, "realtek,wifi-rfe-option", &rfe_option))
++		rtwdev->efuse.rfe_option = rfe_option;
++}
++#else
++static void rtw8814a_apply_rfe_override(struct rtw_dev *rtwdev)
++{
++}
++#endif
++
+ static int rtw8814a_read_efuse(struct rtw_dev *rtwdev, u8 *log_map)
+ {
+ 	struct rtw_efuse *efuse = &rtwdev->efuse;
+@@ -140,6 +166,7 @@
+ 
+ 	efuse->usb_mode_switch = u8_get_bits(map->usb_mode, BIT(4));
+ 	efuse->rfe_option = map->rfe_option;
++	rtw8814a_apply_rfe_override(rtwdev);
+ 	efuse->rf_board_option = map->rf_board_option;
+ 	efuse->crystal_cap = map->xtal_k;
+ 	efuse->channel_plan = map->channel_plan;
