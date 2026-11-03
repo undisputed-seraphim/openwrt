@@ -32,12 +32,17 @@ define Build/Compile
 	$(KERNEL_MAKE) M="$(PKG_BUILD_DIR)" modules
 endef
 
+# dhd with EXTFDIMGPATH=/lib/firmware/brcm appends <chipid><chiprev>/<flavor>/
+# rtecdc.bin to that directory (dhd_pcie.c: concate_extfdimg_name()). Flavor is
+# taken from the NVRAM variable flavorN, else the first of "", release, debug,
+# mfgtest that exists. Install into the <chipid><chiprev>/ layout accordingly.
 define KernelPackage/broadcom-wl/install
-	$(INSTALL_DIR) $(1)/lib/firmware/brcm
+	$(INSTALL_DIR) $(1)/lib/firmware/brcm/43684c0
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/firmware/43684c0.bin \
-		$(1)/lib/firmware/brcm/brcmfmac43684c0.bin 2>/dev/null || true
+		$(1)/lib/firmware/brcm/43684c0/rtecdc.bin
+	$(INSTALL_DIR) $(1)/lib/firmware/brcm/6715b0
 	$(INSTALL_DATA) $(PKG_BUILD_DIR)/firmware/6715b0.bin \
-		$(1)/lib/firmware/brcm/brcmfmac6715b0.bin 2>/dev/null || true
+		$(1)/lib/firmware/brcm/6715b0/rtecdc.bin
 endef
 
 $(eval $(call KernelPackage,broadcom-wl))
