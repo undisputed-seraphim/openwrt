@@ -145,6 +145,10 @@
 	status = "okay";
 };
 
+&pcie0 {
+	status = "okay";
+};
+
 &boot_state {
 	status = "okay";
 };

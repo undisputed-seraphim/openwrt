@@ -300,8 +300,10 @@
 		status = "disabled";
 	};
 
-	pcie@80040000 {
+	pcie0: pcie@80040000 {
 		compatible = "brcm,bcm963xx-pcie";
+		device_type = "pci";
+		brcm,coreid = <0>;
 		reg = <0x80040000 0xa000>;
 		#address-cells = <3>;
 		#size-cells = <2>;
