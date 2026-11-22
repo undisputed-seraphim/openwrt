@@ -24,6 +24,12 @@ realtek_setup_interfaces()
 	local lan_list="$2"
 
 	case $board in
+	askey,ap5100w)
+		# Both jacks are wired LAN ports behind one switch.  Give
+		# them one bridge so the default AP can join "lan"; the
+		# device tree names the ports by their hardware number.
+		ucidef_set_interface_lan "eth3 eth4"
+		;;
 	bt-pon,bt-g711ax)
 		ucidef_set_interface_lan "$lan_list"
 		;;
@@ -232,11 +238,15 @@ realtek_setup_macs()
 		# Read it through /dev/mtd8: mtd_get_mac_ascii() uses
 		# find_mtd_part(), which hands back /dev/mtdblock8 and makes
 		# mtdblock warn that a NAND device is not a UBI volume.
-		# Do not hand out a per-port sequence from here either: the
-		# next addresses are the Wi-Fi base and VAP addresses.
-		lan_mac="$(/usr/sbin/ap5100w-nvram lanhwaddr)"
-		eth0_mac=$lan_mac
-		label_mac=$lan_mac
+		#
+		# Only the label address is set here.  The address belongs
+		# on br-lan, but an interface macaddr makes config_generate
+		# copy it onto every bridge port; 91-ap5100w-lan writes it
+		# to the bridge device instead.  The ports keep the
+		# addresses the switch driver gave them, and the next
+		# addresses are the Wi-Fi base and VAP addresses, so do not
+		# hand out a per-port sequence here either.
+		label_mac="$(/usr/sbin/ap5100w-nvram lanhwaddr)"
 		;;
 	datto,l8|\
 	edgecore,ecs2100-52t|\
