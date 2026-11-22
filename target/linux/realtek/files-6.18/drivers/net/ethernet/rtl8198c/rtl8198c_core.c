@@ -379,6 +379,8 @@ static int eth_probe(struct platform_device *pdev)
 	struct rtl8198c_port *port;
 	struct rtl8198c_eth *eth;
 	struct net_device *netdev;
+	struct device_node *ports, *np;
+	u32 mask;
 	int irq, ret, i;
 	u8 base[ETH_ALEN];
 	u8 macs[ETH_PORTS][ETH_ALEN];
@@ -392,6 +394,29 @@ static int eth_probe(struct platform_device *pdev)
 	eth->mac_filter_enabled = false;
 	eth->green_enabled = true;	/* rtl8198c_switch_gphy_init() applies green */
 	spin_lock_init(&eth->tx_lock);
+
+	/* Only the wired ports get a netdev.  Without an ethernet-ports
+	 * node every switch port is exposed, which is what the generic
+	 * driver did before boards started describing their jacks. */
+	eth->port_mask = (1U << ETH_PORTS) - 1;
+	ports = of_get_child_by_name(pdev->dev.of_node, "ethernet-ports");
+	if (ports) {
+		mask = 0;
+		for_each_child_of_node(ports, np) {
+			u32 reg;
+
+			if (!of_property_read_u32(np, "reg", &reg) &&
+			    reg < ETH_PORTS)
+				mask |= BIT(reg);
+		}
+		of_node_put(ports);
+		if (!mask) {
+			dev_err(&pdev->dev, "no usable ethernet ports\n");
+			kfree(eth);
+			return -EINVAL;
+		}
+		eth->port_mask = mask;
+	}
 
 	/* One address per port: the switch has to tell the netdevs apart, and
 	 * each address needs its own static FDB entry towards the CPU.  The
@@ -453,6 +478,9 @@ static int eth_probe(struct platform_device *pdev)
 	if (ret) goto err_free;
 
 	for (i = 0; i < ETH_PORTS; i++) {
+		if (!(eth->port_mask & BIT(i)))
+			continue;
+
 		netdev = alloc_etherdev(sizeof(*port));
 		if (!netdev) {
 			ret = -ENOMEM;
@@ -464,6 +492,12 @@ static int eth_probe(struct platform_device *pdev)
 		port->vid = i ? VLAN_LAN : VLAN_WAN;
 		port->fid = i ? L2_FID_LAN : L2_FID_WAN;
 		eth->netdev[i] = netdev;
+
+		/* Keep the hardware port number in the name so eth3 and
+		 * eth4 do not shift when the other ports are not exposed. */
+		snprintf(netdev->name, IFNAMSIZ, "eth%d", i);
+		if (!eth->napi_dev)
+			eth->napi_dev = netdev;
 
 		/* 64-bit byte counters: dev->stats is 32-bit here and wraps
 		 * in under a minute at gigabit rates.  Per-CPU so the RX and
@@ -505,23 +539,27 @@ static int eth_probe(struct platform_device *pdev)
 				    NETIF_F_HW_VLAN_CTAG_FILTER;
 	}
 
-	netif_napi_add_weight(eth->netdev[0], &eth->napi, rtl8198c_eth_poll, 64);
+	netif_napi_add_weight(eth->napi_dev, &eth->napi, rtl8198c_eth_poll, 64);
 	platform_set_drvdata(pdev, eth);
 
 	for (i = 0; i < ETH_PORTS; i++) {
+		int j;
+
+		if (!eth->netdev[i])
+			continue;
 		ret = register_netdev(eth->netdev[i]);
 		if (ret) {
-			while (i--)
-				unregister_netdev(eth->netdev[i]);
+			for (j = 0; j < i; j++)
+				if (eth->netdev[j])
+					unregister_netdev(eth->netdev[j]);
 			goto err_netdevs;
 		}
 	}
 
 	debugfs_init(eth);
 	rtl8198c_l3_register(eth);
-	dev_info(eth->dev, "registered %s..%s (%d ports) IRQ %d\n",
-		 eth->netdev[0]->name, eth->netdev[ETH_PORTS - 1]->name,
-		 ETH_PORTS, irq);
+	dev_info(eth->dev, "registered %d port(s) IRQ %d\n",
+		 hweight32(eth->port_mask), irq);
 	return 0;
 
 err_netdevs:

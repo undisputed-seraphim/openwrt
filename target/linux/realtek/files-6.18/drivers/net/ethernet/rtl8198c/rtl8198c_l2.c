@@ -730,6 +730,8 @@ static void vlan_entry_del(struct rtl8198c_eth *eth, u16 vid, u32 port)
 void rtl8198c_netif_vlan_init(struct rtl8198c_eth *eth,
 			    const u8 macs[][ETH_ALEN])
 {
+	u32 wan = eth->port_mask & BIT(0);
+	u32 lan = eth->port_mask & ~BIT(0);
 	int i;
 
 	/* The netif entries themselves are per VLAN, not per port: they are
@@ -737,35 +739,40 @@ void rtl8198c_netif_vlan_init(struct rtl8198c_eth *eth,
 	memcpy(eth->port_mac, macs, sizeof(eth->port_mac));
 	for (i = 0; i < ETH_PORTS; i++)
 		eth->port_mtu[i] = 1500;
-	/* Native VLANs: port 0 (WAN) alone in VLAN 8, ports 1-4 (LAN)
-	 * sharing VLAN 9, the CPU a member of both and everything untagged.
-	 * l2_table_clear() clears the table (MEMCR bit 2), so they have to be
-	 * re-created here.  A missing entry is invisible from the data path:
-	 * an unknown VID is trapped to the CPU, so traffic still passes. */
+	/* Native VLANs: the WAN VLAN holds port 0 when it is wired, the LAN
+	 * VLAN the remaining wired ports.  The CPU is a member of both and
+	 * everything is untagged.  l2_table_clear() clears the table (MEMCR
+	 * bit 2), so they have to be re-created here.  A missing entry is
+	 * invisible from the data path: an unknown VID is trapped to the
+	 * CPU, so traffic still passes. */
 	eth->fid_vid[L2_FID_WAN] = VLAN_WAN;
 	eth->fid_vid[L2_FID_LAN] = VLAN_LAN;
-	/* TEST: port 3 joins the WAN VLAN on the bench board. */
 	eth->vlans[0] = (struct rtl8198c_vlan) {
 		.used = true, .vid = VLAN_WAN, .fid = L2_FID_WAN,
-		.member = BIT(0) | BIT(6), .untag = BIT(0) | BIT(6),
+		.member = wan | BIT(6), .untag = wan | BIT(6),
 	};
 	eth->vlans[1] = (struct rtl8198c_vlan) {
 		.used = true, .vid = VLAN_LAN, .fid = L2_FID_LAN,
-		.member = 0x1E | BIT(6), .untag = 0x1E | BIT(6),
+		.member = lan | BIT(6), .untag = lan | BIT(6),
 	};
 	vlan_program(eth, &eth->vlans[0]);
 	vlan_program(eth, &eth->vlans[1]);
 
-	/* PVIDs: port 0 is the WAN port, ports 1-4 are LAN.  The registers
-	 * are pairwise: port * 2 & ~3 selects PVCR0/1/2 for ports 0-1, 2-3
-	 * and 4-5, with the even port in bits 0-11 and the odd port in bits
-	 * 16-27.  Writing PVCR0 + port * 4 (the obvious layout) puts port 1
-	 * in the WAN VLAN and lands LAN PVIDs on the CPU extension ports;
-	 * the hardware uses the same pairwise arithmetic. */
+	/* PVIDs: port 0 is the WAN port when it is wired, the rest are LAN.
+	 * The registers are pairwise: port * 2 & ~3 selects PVCR0/1/2 for
+	 * ports 0-1, 2-3 and 4-5, with the even port in bits 0-11 and the
+	 * odd port in bits 16-27.  Writing PVCR0 + port * 4 (the obvious
+	 * layout) puts port 1 in the WAN VLAN and lands LAN PVIDs on the
+	 * CPU extension ports; the hardware uses the same pairwise
+	 * arithmetic.  Ports without a netdev keep their reset PVID. */
 	for (i = 0; i < ETH_PORTS; i++) {
 		u32 reg = PVCR0 + ((i * 2) & ~3);
 		u32 pvid = i ? VLAN_LAN : VLAN_WAN;
-		u32 pvc = sys_r32(reg);
+		u32 pvc;
+
+		if (!(eth->port_mask & BIT(i)))
+			continue;
+		pvc = sys_r32(reg);
 
 		if (i & 1)
 			pvc = (pvc & ~0xFFF0000) | (pvid << 16);

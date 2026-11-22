@@ -5,6 +5,7 @@
 #ifndef _RTL8198C_H
 #define _RTL8198C_H
 
+#include <linux/bitops.h>
 #include <linux/etherdevice.h>
 #include <linux/interrupt.h>
 #include <linux/io.h>
@@ -212,6 +213,8 @@ struct rtl8198c_eth {
 	struct device *dev;
 	int irq;
 	struct net_device *netdev[ETH_PORTS];
+	u32 port_mask;			/* physical ports that have a netdev */
+	struct net_device *napi_dev;	/* first such port; owns the NAPI */
 	int open_count;			/* open netdevs; the CPU engine runs while > 0 */
 	u8 bridge_ports;		/* member ports; STP runs while > 0 */
 	spinlock_t tx_lock;		/* serialises tx_head and the shared TX ring */

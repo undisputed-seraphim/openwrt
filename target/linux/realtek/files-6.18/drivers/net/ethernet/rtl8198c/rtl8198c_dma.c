@@ -672,7 +672,7 @@ static struct net_device *eth_rx_netdev(struct rtl8198c_eth *eth,
 			return eth->netdev[i];
 	if (srcdev)
 		return srcdev;
-	return eth->netdev[0];
+	return eth->napi_dev;
 }
 
 /* Frames the switch itself flooded inside the VLAN: broadcast, multicast
@@ -747,13 +747,13 @@ static int rx_poll_ring(struct rtl8198c_eth *eth, int ring, int budget)
 			 * mbuf, which the RISC reuses a full lap later. */
 			if (unlikely(midx < 0 ||
 				     midx >= RX_RINGS * RX_RING_SIZE)) {
-				rdev = eth->netdev[0];
+				rdev = eth->napi_dev;
 				rdev->stats.rx_dropped++;
 				goto next;
 			}
 			skb = eth->rx_skb[midx];
 			if (unlikely(!skb)) {
-				eth->netdev[0]->stats.rx_dropped++;
+				eth->napi_dev->stats.rx_dropped++;
 				goto next;
 			}
 			rdev = eth_rx_netdev(eth, skb->data, src_port);
