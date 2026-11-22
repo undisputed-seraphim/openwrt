@@ -5,7 +5,8 @@
 # leaves unprogrammed, so the driver invents a random one at probe.  The
 # real addresses are stored in the nvdata partition: wlan1aphwaddr for
 # the 2.4 GHz module on PCIe port 0 and wlanaphwaddr for the 5 GHz
-# module on port 1, followed by the per-VAP addresses.
+# module on port 1, followed by wlan1vap0..2 / wlanvap0..2 for the extra
+# BSSes.
 #
 # The primary path is wireless.<radio>.macaddr_base, which the wifi
 # scripts turn into base, base + 1, ... for phyX-ap0, phyX-ap1, ... at
@@ -33,23 +34,43 @@ devpath=${DEVPATH:-}
 [ -n "$devpath" ] || devpath=$(readlink -f "/sys/class/net/$ifname/device")
 
 case "$devpath" in
-*0000:00:01.0*|*0000:01:00.0*) key=wlan1aphwaddr ;;	# PCIe port 0, 2.4 GHz
-*0001:00:01.0*|*0001:01:00.0*) key=wlanaphwaddr ;;	# PCIe port 1, 5 GHz
+*0000:00:01.0*|*0000:01:00.0*)		# PCIe port 0, 2.4 GHz
+	key=wlan1aphwaddr
+	vapkey=wlan1vap ;;
+*0001:00:01.0*|*0001:01:00.0*)		# PCIe port 1, 5 GHz
+	key=wlanaphwaddr
+	vapkey=wlanvap ;;
 *) exit 0 ;;
 esac
 
-mac=$(/usr/sbin/ap5100w-nvram "$key") || exit 0
-[ -n "$mac" ] || exit 0
+valid_mac() {
+	echo "$1" | grep -Eq '^[0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5}$'
+}
 
-# phy0-ap0 gets the base address and phy0-ap1..3 the next three, which
-# matches wlan1vap0..2 / wlanvap0..2 from nvdata.  Leave anything past
-# the vendor VAP block to mac80211 so it cannot collide with the other
-# radio's base addresses.
+base=$(/usr/sbin/ap5100w-nvram "$key") || exit 0
+valid_mac "$base" || exit 0
+
+# phyX-ap0 gets the base address; phyX-ap1..3 the explicit vap0..2
+# addresses, falling back to base + index for units whose nvdata does not
+# carry them.  Leave anything past the vendor VAP block to mac80211 so it
+# cannot collide with the other radio's base addresses.
 [ "$vap" -le 3 ] || exit 0
+mac=
 if [ "$vap" -gt 0 ]; then
-	last=$((0x${mac##*:} + vap))
-	[ "$last" -le 255 ] || exit 0
-	mac="${mac%:*}:$(printf '%02x' "$last")"
+	mac=$(/usr/sbin/ap5100w-nvram "$vapkey$((vap - 1))hwaddr") || mac=
+	valid_mac "$mac" || mac=
 fi
+if [ -z "$mac" ]; then
+	mac=$base
+	if [ "$vap" -gt 0 ]; then
+		last=$((0x${mac##*:} + vap))
+		[ "$last" -le 255 ] || exit 0
+		mac="${mac%:*}:$(printf '%02x' "$last")"
+	fi
+fi
+
+# Never program a group or zero address.
+valid_mac "$mac" || exit 0
+[ $((0x${mac%%:*} & 1)) -eq 0 ] || exit 0
 
 ip link set dev "$ifname" address "$mac"

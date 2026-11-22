@@ -1,0 +1,10 @@
+#!/bin/sh
+# 10-wifi-detect generates /etc/config/wireless when a phy appears, with
+# the highest band the module reports.  Pin the new radio to the band it
+# is wired for and seed its factory AP settings before netifd retries.
+
+[ "$ACTION" = add ] || exit 0
+[ -x /usr/sbin/ap5100w-wifi ] || exit 0
+
+/usr/sbin/ap5100w-wifi
+ubus call network.wireless retry >/dev/null 2>&1

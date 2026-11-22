@@ -1,0 +1,150 @@
+#!/bin/sh
+# Apply the vendor Wi-Fi settings from the "nvdata" partition to UCI.
+#
+# The two radios are RTL8814AE modules and both advertise 2.4 and 5 GHz,
+# so cfg80211 cannot tell which band each one is wired for: the stock
+# /etc/config/wireless generator picks the highest band for both and puts
+# the 2.4 GHz module on 5 GHz.  This helper pins the band by PCIe port
+# and, when it had to correct a freshly generated radio, fills in the
+# factory AP settings of that band (SSID, passphrase, hidden).
+#
+# It runs from /etc/init.d/ap5100w-nvram before wpad starts, and again
+# from an ieee80211 hotplug event for a radio that appears late.  The
+# band is a hardware fact and is always enforced; the AP settings are
+# only written when the band had to be changed or the default interface
+# is still the generator's untouched placeholder.  A configured AP is
+# never overwritten on a later boot.
+
+NVRAM=/usr/sbin/ap5100w-nvram
+[ -x "$NVRAM" ] || exit 0
+
+nv() {
+	"$NVRAM" "$1" 2>/dev/null
+}
+
+# At boot the generator may have run before kmodloader probed the
+# modules, and a late phy can show up without a config.  Generate it here
+# if the radios exist.
+if [ ! -f /etc/config/wireless ]; then
+	ls /sys/class/ieee80211/phy* >/dev/null 2>&1 || exit 0
+	/sbin/wifi config >/dev/null 2>&1
+fi
+[ -f /etc/config/wireless ] || exit 0
+
+changed=0
+
+set_opt() { # section option value
+	local cur
+
+	cur=$(uci -q get "wireless.$1.$2")
+	[ "$cur" = "$3" ] && return 0
+	uci -q set "wireless.$1.$2=$3" || return 0
+	changed=1
+}
+
+# Vendor encryption code: 0 none, 1 WEP, 2 WPA-PSK, 3 WPA2-PSK,
+# 4 WPA/WPA2-PSK mixed.  Only the PSK modes are used: an open or WEP AP
+# is never brought up behind the user's back.
+uci_encryption() {
+	case "$1" in
+	2) echo psk ;;
+	3) echo psk2 ;;
+	4) echo psk-mixed ;;
+	*) return 1 ;;
+	esac
+}
+
+valid_psk() { # passphrase
+	local len=${#1}
+
+	[ "$len" -ge 8 ] && [ "$len" -le 63 ] && return 0
+	[ "$len" -eq 64 ] || return 1
+	case "$1" in *[!0-9a-fA-F]*) return 1 ;; esac
+	return 0
+}
+
+country=$(nv CountryString)
+case "$country" in
+[A-Za-z][A-Za-z0-9]) country=$(echo "$country" | tr 'a-z' 'A-Z') ;;
+*) country= ;;
+esac
+
+for sec in $(uci -q show wireless |
+		sed -n 's/^wireless\.\([^.]*\)=wifi-device$/\1/p'); do
+	path=$(uci -q get "wireless.$sec.path")
+	[ -n "$path" ] || path=$(readlink -f \
+		"/sys/class/ieee80211/$(uci -q get "wireless.$sec.phy")/device" 2>/dev/null)
+
+	# PCIe port 0 carries the 2.4 GHz module, port 1 the 5 GHz one.
+	# Both the current bridged topology and the older endpoint
+	# addresses are matched.
+	case "$path" in
+	*0000:00:01.0*|*0000:01:00.0*)
+		band=2g; prefix=APwlanap2G; base=$(nv wlan1aphwaddr)
+		channel=1; htmode=HT20 ;;
+	*0001:00:01.0*|*0001:01:00.0*)
+		band=5g; prefix=APwlanap5G; base=$(nv wlanaphwaddr)
+		channel=36; htmode=VHT80 ;;
+	*) continue ;;
+	esac
+
+	# Factory address of the radio, and the VAP block that follows it.
+	[ -n "$base" ] && set_opt "$sec" macaddr_base "$base"
+	[ -n "$(uci -q get "wireless.$sec.num_global_macaddr")" ] ||
+		set_opt "$sec" num_global_macaddr 4
+
+	# The country is a board property, not a user preference; fill it in
+	# when an older config (or a regenerated radio) has none.
+	if [ -n "$country" ] && [ -z "$(uci -q get "wireless.$sec.country")" ]; then
+		set_opt "$sec" country "$country"
+	fi
+
+	# The band the generator picked was wrong: pin it.
+	seed=0
+	if [ "$(uci -q get "wireless.$sec.band")" != "$band" ]; then
+		set_opt "$sec" band "$band"
+		set_opt "$sec" channel "$channel"
+		set_opt "$sec" htmode "$htmode"
+		seed=1
+	fi
+
+	iface="default_$sec"
+	[ -n "$(uci -q get "wireless.$iface")" ] || continue
+
+	# Also seed a default interface that the generator left at its
+	# untouched placeholder.  This covers a config carried over from an
+	# image that predates the board defaults, where the band may already
+	# be right.  A user's own AP never matches.
+	if [ "$(uci -q get "wireless.$iface.ssid")" = "OpenWrt" ] &&
+	   [ "$(uci -q get "wireless.$iface.encryption")" = "none" ] &&
+	   [ "$(uci -q get "wireless.$iface.disabled")" = "1" ]; then
+		seed=1
+	fi
+	[ "$seed" = 1 ] || continue
+
+	radio_on=$(nv "${prefix}on")
+	ssid_on=$(nv "${prefix}ssid1on")
+	ssid=$(nv "${prefix}ssid1")
+	key=$(nv "${prefix}passphrase1")
+	hidden=$(nv "${prefix}hidessid")
+	enc=$(uci_encryption "$(nv "${prefix}encryption1")")
+
+	if [ "$radio_on" = 0 ] || [ "$ssid_on" = 0 ] ||
+	   [ -z "$ssid" ] || [ ${#ssid} -gt 32 ] ||
+	   [ -z "$enc" ] || ! valid_psk "$key"; then
+		# Disabled band, WEP, or an unusable key: keep the AP off
+		# instead of exposing an open network.
+		set_opt "$iface" disabled 1
+		continue
+	fi
+
+	set_opt "$iface" ssid "$ssid"
+	set_opt "$iface" encryption "$enc"
+	set_opt "$iface" key "$key"
+	set_opt "$iface" disabled 0
+	[ "$hidden" = 1 ] && set_opt "$iface" hidden 1
+done
+
+[ "$changed" = 1 ] && uci -q commit wireless
+
+exit 0

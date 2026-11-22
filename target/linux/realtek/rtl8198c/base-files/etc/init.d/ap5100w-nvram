@@ -1,43 +1,11 @@
 #!/bin/sh /etc/rc.common
 # Read the vendor NVRAM block once during boot so that the net hotplug
-# hook and the wireless MAC setup do not have to wait for the 2 MiB
-# nvdata partition when the radios appear.
+# hook and the wireless setup do not have to wait for the 2 MiB nvdata
+# partition when the radios appear.
 
 START=18
 
-set_wifi_mac_bases() {
-	local section path base
-
-	[ -f /etc/config/wireless ] || return 0
-
-	for section in $(uci -q show wireless |
-			 sed -n 's/^wireless\.\([^.]*\)=wifi-device$/\1/p'); do
-		path=$(uci -q get "wireless.$section.path")
-		[ -n "$path" ] || path=$(readlink -f \
-			"/sys/class/ieee80211/$(uci -q get "wireless.$section.phy")/device" 2>/dev/null)
-
-		case "$path" in
-		*0000:00:01.0*|*0000:01:00.0*)
-			base=$(/usr/sbin/ap5100w-nvram wlan1aphwaddr) ;;
-		*0001:00:01.0*|*0001:01:00.0*)
-			base=$(/usr/sbin/ap5100w-nvram wlanaphwaddr) ;;
-		*) continue ;;
-		esac
-		[ -n "$base" ] || continue
-
-		# Let the wifi scripts derive every interface address from
-		# the vendor base: phy0-ap0 = base, phy0-ap1 = base + 1, ...
-		# which is what wlan1vap0..2 / wlanvap0..2 contain.  There
-		# are three VAP addresses per radio, so the next radio starts
-		# at base + 4.
-		uci -q set "wireless.$section.macaddr_base=$base"
-		uci -q set "wireless.$section.num_global_macaddr=4"
-	done
-
-	uci -q commit wireless
-}
-
 boot() {
 	/usr/sbin/ap5100w-nvram lanhwaddr >/dev/null 2>&1 || true
-	set_wifi_mac_bases
+	[ -x /usr/sbin/ap5100w-wifi ] && /usr/sbin/ap5100w-wifi
 }

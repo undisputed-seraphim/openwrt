@@ -3,9 +3,12 @@
 #
 # The Askey firmware stores three 128 KiB copies of NUL-separated
 # key=value pairs near the end of the 2 MiB nvdata partition.  The Wi-Fi
-# MAC addresses only exist there: the RTL8814AE modules are shipped with
-# an unprogrammed efuse, which is why rtw88 falls back to a random
-# address.
+# MAC addresses and the factory AP settings only exist there: the
+# RTL8814AE modules are shipped with an unprogrammed efuse, which is why
+# rtw88 falls back to a random address.
+#
+# Values may be padded with spaces and a bank may be truncated, so the
+# first occurrence that is not empty wins, not the first one that exists.
 
 usage() {
 	echo "usage: ${0##*/} <key>" >&2
@@ -14,6 +17,11 @@ usage() {
 
 [ -n "$1" ] || usage
 key="$1"
+
+# The dump contains arbitrary bytes from the vendor's padding; keep awk
+# byte-oriented so it does not warn about invalid multibyte sequences.
+LC_ALL=C
+export LC_ALL
 
 index=$(sed -n 's/^mtd\([0-9]*\): [0-9a-f]* [0-9a-f]* "nvdata"$/\1/p' /proc/mtd)
 [ -n "$index" ] || exit 1
@@ -27,12 +35,29 @@ dump() {
 	dd if="$device" bs=4096 2>/dev/null | tr '\000' '\n'
 }
 
+# A record starts with "key=", but the first record of a bank has a small
+# header in front of it, so the match has to be anchored at the start of
+# the line.  Skip records whose value is empty after trimming: they are
+# padding and an older copy may hold the real value.
+lookup() {
+	awk -v k="$key=" 'index($0, k) == 1 {
+		v = substr($0, length(k) + 1)
+		sub(/[ \t\r]+$/, "", v)
+		if (v != "") {
+			print v
+			exit
+		}
+	}' "$@"
+}
+
 if [ -s "$cache" ]; then
-	value=$(grep -m1 "^$key=" "$cache" | cut -d= -f2-)
-elif dump > "$cache.$$" 2>/dev/null && mv "$cache.$$" "$cache"; then
-	value=$(grep -m1 "^$key=" "$cache" | cut -d= -f2-)
+	value=$(lookup "$cache")
+elif dump > "$cache.$$" 2>/dev/null && chmod 600 "$cache.$$" &&
+     mv "$cache.$$" "$cache"; then
+	value=$(lookup "$cache")
 else
-	value=$(dump | grep -m1 "^$key=" | cut -d= -f2-)
+	rm -f "$cache.$$"
+	value=$(dump | lookup)
 fi
 
 [ -n "$value" ] || exit 1

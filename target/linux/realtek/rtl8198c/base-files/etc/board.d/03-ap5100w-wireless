@@ -1,0 +1,61 @@
+#!/bin/sh
+# Seed the default Wi-Fi interfaces with the vendor's per-unit AP settings.
+#
+# The AP5100W keeps its factory SSID, passphrase and country code in the
+# "nvdata" partition.  Feeding them into board-base.json makes the stock
+# /etc/config/wireless generator produce an enabled, encrypted AP on the
+# first boot; from then on the UCI configuration is authoritative.  A
+# factory reset re-runs the defaults, an upgrade does not.
+#
+# The radios themselves are pinned to their wired band by
+# /usr/sbin/ap5100w-wifi, because both modules report 2.4 and 5 GHz.
+
+. /lib/functions.sh
+. /lib/functions/uci-defaults.sh
+
+NVRAM=/usr/sbin/ap5100w-nvram
+
+board_config_update
+
+if [ "$(board_name)" = "askey,ap5100w" ] && [ -x "$NVRAM" ]; then
+	country=$("$NVRAM" CountryString 2>/dev/null)
+	case "$country" in
+	[A-Za-z][A-Za-z0-9])
+		ucidef_set_country "$(echo "$country" | tr 'a-z' 'A-Z')" ;;
+	esac
+
+	for entry in 2g:APwlanap2G 5g:APwlanap5G; do
+		band=${entry%%:*}
+		prefix=${entry#*:}
+
+		radio_on=$("$NVRAM" "${prefix}on" 2>/dev/null)
+		ssid_on=$("$NVRAM" "${prefix}ssid1on" 2>/dev/null)
+		ssid=$("$NVRAM" "${prefix}ssid1" 2>/dev/null)
+		key=$("$NVRAM" "${prefix}passphrase1" 2>/dev/null)
+		enc=$("$NVRAM" "${prefix}encryption1" 2>/dev/null)
+
+		[ "$radio_on" = 0 ] && continue
+		[ "$ssid_on" = 0 ] && continue
+		[ -n "$ssid" ] && [ ${#ssid} -le 32 ] || continue
+
+		case "$enc" in
+		2) enc=psk ;;
+		3) enc=psk2 ;;
+		4) enc=psk-mixed ;;
+		*) continue ;;
+		esac
+
+		len=${#key}
+		if [ "$len" -lt 8 ] || [ "$len" -gt 63 ]; then
+			[ "$len" -eq 64 ] || continue
+			case "$key" in *[!0-9a-fA-F]*) continue ;; esac
+		fi
+
+		ucidef_set_wireless "$band" "$ssid" "$enc" "$key"
+		ucidef_set_wireless_mac_count "$band" 4
+	done
+fi
+
+board_config_flush
+
+exit 0
