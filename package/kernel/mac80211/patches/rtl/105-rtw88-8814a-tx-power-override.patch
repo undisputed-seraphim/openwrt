@@ -1,0 +1,235 @@
+From: Undisputed Seraphim <undisputed.seraphim@gmail.com>
+Subject: [PATCH] wifi: rtw88: add a per-channel TX power index override
+
+Some modules ship with an unprogrammed efuse: every TX power index reads
+0xff.  rtw_phy_get_tx_power_index() then computes the index from an
+unsigned wrap, which on an 8814A gives the maximum index for the CCK
+rates (they clamp) and the minimum for every OFDM/HT/VHT rate.  The
+result is a radio that advertises fine on CCK beacons and is tens of dB
+down on every data rate, or on 5 GHz entirely (there is no CCK there).
+
+Allow a board to supply the per-channel indices from its factory
+calibration data through debugfs, and use them when the efuse has none:
+
+  echo "<cck_2g> <ht_2g> <ht_5g>" > .../rtw88/tx_pwr_override
+
+with the arrays hex encoded, one index per channel (14 entries for
+2.4 GHz, 196 for 5 GHz, index = channel - 1).  Writing the node applies
+the table immediately; 0 keeps the efuse value for that entry.  Nothing
+changes for boards with a programmed efuse.
+
+Signed-off-by: Undisputed Seraphim <undisputed.seraphim@gmail.com>
+---
+--- a/drivers/net/wireless/realtek/rtw88/main.h
++++ b/drivers/net/wireless/realtek/rtw88/main.h
+@@ -2060,6 +2060,21 @@
+ 	u8 op_bw;
+ };
+ 
++#define RTW_TXPWR_OV_2G_CH	14
++#define RTW_TXPWR_OV_5G_CH	196
++
++/* Per-channel TX power indices taken from a board calibration blob, for
++ * boards whose module efuse has no calibration data (reads all 0xff).
++ * The values are the indices written to the chip's AGC table; 0 keeps the
++ * value computed from the efuse path for that rate.
++ */
++struct rtw_txpwr_override {
++	bool valid;
++	u8 cck_2g[RTW_TXPWR_OV_2G_CH];
++	u8 ht_2g[RTW_TXPWR_OV_2G_CH];
++	u8 ht_5g[RTW_TXPWR_OV_5G_CH];
++};
++
+ struct rtw_dev {
+ 	struct ieee80211_hw *hw;
+ 	struct device *dev;
+@@ -2140,6 +2155,8 @@
+ 	char led_name[32];
+ 	struct led_classdev led_cdev;
+ 
++	struct rtw_txpwr_override txpwr_ov;
++
+ 	/* hci related data, must be last */
+ 	u8 priv[] __aligned(sizeof(void *));
+ };
+--- a/drivers/net/wireless/realtek/rtw88/phy.c
++++ b/drivers/net/wireless/realtek/rtw88/phy.c
+@@ -2302,6 +2302,41 @@
+ }
+ EXPORT_SYMBOL(rtw_phy_get_tx_power_index);
+ 
++static u8 rtw_phy_get_txpwr_ov_index(struct rtw_dev *rtwdev, u8 ch, u8 rate,
++				     u8 def)
++{
++	struct rtw_txpwr_override *ov = &rtwdev->txpwr_ov;
++	u8 idx, val;
++
++	if (!ov->valid)
++		return def;
++
++	if (ch >= 1 && ch <= RTW_TXPWR_OV_2G_CH) {
++		idx = ch - 1;
++		if (rate <= DESC_RATE11M)
++			val = ov->cck_2g[idx];
++		else
++			val = ov->ht_2g[idx];
++	} else if (ch > RTW_TXPWR_OV_2G_CH && ch <= RTW_TXPWR_OV_5G_CH) {
++		val = ov->ht_5g[ch - 1];
++	} else {
++		return def;
++	}
++
++	/* 0 marks an unset entry, keep the efuse-derived value */
++	if (!val)
++		return def;
++
++	/* the 8814A writer adds two index steps of its own */
++	if (val > 2)
++		val -= 2;
++
++	if (val > rtwdev->chip->max_power_index)
++		val = rtwdev->chip->max_power_index;
++
++	return val;
++}
++
+ static void rtw_phy_set_tx_power_index_by_rs(struct rtw_dev *rtwdev,
+ 					     u8 ch, u8 path, u8 rs)
+ {
+@@ -2324,6 +2359,7 @@
+ 		rate = rates[i];
+ 		pwr_idx = rtw_phy_get_tx_power_index(rtwdev, path, rate,
+ 						     bw, ch, regd);
++		pwr_idx = rtw_phy_get_txpwr_ov_index(rtwdev, ch, rate, pwr_idx);
+ 		hal->tx_pwr_tbl[path][rate] = pwr_idx;
+ 	}
+ }
+--- a/drivers/net/wireless/realtek/rtw88/debug.c
++++ b/drivers/net/wireless/realtek/rtw88/debug.c
+@@ -82,6 +82,7 @@
+ 	struct rtw_debugfs_priv bb_41;
+ 	struct rtw_debugfs_priv rf_dump;
+ 	struct rtw_debugfs_priv tx_pwr_tbl;
++	struct rtw_debugfs_priv tx_pwr_override;
+ 	struct rtw_debugfs_priv write_reg;
+ 	struct rtw_debugfs_priv h2c;
+ 	struct rtw_debugfs_priv rf_write;
+@@ -1151,6 +1152,101 @@
+ 	return 0;
+ }
+ 
++static int rtw_debugfs_hexval(char c)
++{
++	if (c >= '0' && c <= '9')
++		return c - '0';
++	if (c >= 'a' && c <= 'f')
++		return c - 'a' + 10;
++	if (c >= 'A' && c <= 'F')
++		return c - 'A' + 10;
++
++	return -EINVAL;
++}
++
++static int rtw_debugfs_hex2buf(const char *hex, u8 *buf, int len)
++{
++	int i, hi, lo;
++
++	if (strlen(hex) != len * 2)
++		return -EINVAL;
++
++	for (i = 0; i < len; i++) {
++		hi = rtw_debugfs_hexval(hex[i * 2]);
++		lo = rtw_debugfs_hexval(hex[i * 2 + 1]);
++		if (hi < 0 || lo < 0)
++			return -EINVAL;
++		buf[i] = (hi << 4) | lo;
++	}
++
++	return 0;
++}
++
++static ssize_t rtw_debugfs_set_tx_pwr_override(struct file *filp,
++					       const char __user *buffer,
++					       size_t count, loff_t *loff)
++{
++	struct seq_file *seqpriv = (struct seq_file *)filp->private_data;
++	struct rtw_debugfs_priv *debugfs_priv = seqpriv->private;
++	struct rtw_dev *rtwdev = debugfs_priv->rtwdev;
++	struct rtw_txpwr_override *ov = &rtwdev->txpwr_ov;
++	char tmp[520];
++	char *tok[3];
++	char *nl;
++	int ret, i;
++
++	ret = rtw_debugfs_copy_from_user(tmp, sizeof(tmp), buffer, count, 5);
++	if (ret)
++		return ret;
++
++	nl = strchrnul(tmp, '\n');
++	*nl = '\0';
++
++	tok[0] = tmp;
++	for (i = 1; i < 3; i++) {
++		tok[i] = strchr(tok[i - 1], ' ');
++		if (!tok[i])
++			return -EINVAL;
++		*tok[i]++ = '\0';
++	}
++
++	ret = rtw_debugfs_hex2buf(tok[0], ov->cck_2g, RTW_TXPWR_OV_2G_CH);
++	if (ret)
++		return ret;
++	ret = rtw_debugfs_hex2buf(tok[1], ov->ht_2g, RTW_TXPWR_OV_2G_CH);
++	if (ret)
++		return ret;
++	ret = rtw_debugfs_hex2buf(tok[2], ov->ht_5g, RTW_TXPWR_OV_5G_CH);
++	if (ret)
++		return ret;
++
++	mutex_lock(&rtwdev->mutex);
++	ov->valid = true;
++	rtw_phy_set_tx_power_level(rtwdev, rtwdev->hal.current_channel);
++	mutex_unlock(&rtwdev->mutex);
++
++	rtw_dbg(rtwdev, RTW_DBG_DEBUGFS, "tx power override applied\n");
++
++	return count;
++}
++
++static int rtw_debugfs_get_tx_pwr_override(struct seq_file *m, void *v)
++{
++	struct rtw_debugfs_priv *debugfs_priv = m->private;
++	struct rtw_dev *rtwdev = debugfs_priv->rtwdev;
++	struct rtw_txpwr_override *ov = &rtwdev->txpwr_ov;
++
++	seq_printf(m, "%s\n", ov->valid ? "valid" : "unset");
++	if (!ov->valid)
++		return 0;
++
++	seq_printf(m, "cck_2g %*phN\n", RTW_TXPWR_OV_2G_CH, ov->cck_2g);
++	seq_printf(m, "ht_2g %*phN\n", RTW_TXPWR_OV_2G_CH, ov->ht_2g);
++	seq_printf(m, "ht_5g %*phN\n", RTW_TXPWR_OV_5G_CH, ov->ht_5g);
++
++	return 0;
++}
++
+ #define rtw_debug_priv_mac(addr)				\
+ {								\
+ 	.cb_read = rtw_debug_get_mac_page,			\
+@@ -1224,6 +1320,7 @@
+ 	.bb_41 = rtw_debug_priv_bb(0x4100),
+ 	.rf_dump = rtw_debug_priv_get(rf_dump),
+ 	.tx_pwr_tbl = rtw_debug_priv_get(tx_pwr_tbl),
++	.tx_pwr_override = rtw_debug_priv_set_and_get(tx_pwr_override),
+ 	.write_reg = rtw_debug_priv_set(write_reg),
+ 	.h2c = rtw_debug_priv_set(h2c),
+ 	.rf_write = rtw_debug_priv_set(rf_write),
+@@ -1275,6 +1372,7 @@
+ 	rtw_debugfs_add_w(h2c);
+ 	rtw_debugfs_add_r(rf_dump);
+ 	rtw_debugfs_add_r(tx_pwr_tbl);
++	rtw_debugfs_add_rw(tx_pwr_override);
+ 	rtw_debugfs_add_rw(edcca_enable);
+ 	rtw_debugfs_add_rw(fw_crash);
+ 	rtw_debugfs_add_rw(force_lowest_basic_rate);
