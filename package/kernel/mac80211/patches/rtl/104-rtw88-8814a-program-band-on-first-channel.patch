@@ -1,0 +1,68 @@
+From: Undisputed Seraphim <undisputed.seraphim@gmail.com>
+Subject: [PATCH] wifi: rtw88: 8814a: program the band on the first channel set
+
+rtw8814a_set_channel() only calls rtw8814a_switch_band() when the band
+read back from REG_CCK_CHECK differs from the band of the new channel.
+The chip powers up in 2G mode (CCK_CHECK clear) but with the per-band RFE
+registers never written, so a module whose first channel is a 2.4 GHz one
+never runs the 2G branch: the RFE pinmux and the ANTSW/ANTSWB LNA control
+stay at the 5 GHz default values (0x54775477, INVSEL 0x54) instead of the
+2G ones (0x72707270, INVSEL 0x72), and TXPSEL/CCK_RX/RXPSEL are not set
+either.  A module that starts on 5 GHz is unaffected because 2G -> 5G is
+a band change and does take the switch.
+
+On an AP5100W this left the 2.4 GHz front end ~60 dB down in both
+directions (beacon -65 dBm instead of -4 dBm at 0.5 m, RX about -90 dBm),
+while 5 GHz worked.
+
+Track the band actually programmed into the chip and take the band switch
+when it does not match, so the first set_channel() always programs the
+band.  Doing it here rather than from power_on() matters: at power-on the
+efuse has not been read yet, so the RFE registers would get the option-0
+values and the first set_channel() would again see no band change.
+rtw88xxa_power_on() already does an unconditional switch_band(2G); the
+8814A simply never got the equivalent.
+
+Signed-off-by: Undisputed Seraphim <undisputed.seraphim@gmail.com>
+---
+--- a/drivers/net/wireless/realtek/rtw88/main.h
++++ b/drivers/net/wireless/realtek/rtw88/main.h
+@@ -1978,6 +1978,10 @@
+ 	u8 current_primary_channel_index;
+ 	u8 current_band_width;
+ 	u8 current_band_type;
++	/* band whose RFE pins and CCK/OFDM path are programmed into the
++	 * chip; 0 means "not programmed yet"
++	 */
++	u8 programmed_band_type;
+ 	u8 primary_channel;
+ 
+ 	/* center channel for different available bandwidth,
+--- a/drivers/net/wireless/realtek/rtw88/rtw8814a.c
++++ b/drivers/net/wireless/realtek/rtw88/rtw8814a.c
+@@ -225,6 +225,12 @@
+ 		rtw_write32_mask(rtwdev, 0x1994, 0xf, 0xf);
+ 		rtw_write8_set(rtwdev, REG_GPIO_MUXCFG + 2, 0xc0);
+ 	}
++
++	/* The chip comes up in 2G mode with the per-band RFE registers never
++	 * written, so make the next set_channel() program the band even if
++	 * the band it detects does not change.
++	 */
++	rtwdev->hal.programmed_band_type = 0;
+ }
+ 
+ #define RTW_TXSCALE_SIZE 37
+@@ -1167,8 +1173,11 @@
+ 	else
+ 		new_band = RTW_BAND_2G;
+ 
+-	if (new_band != old_band)
++	if (new_band != old_band ||
++	    new_band != rtwdev->hal.programmed_band_type) {
+ 		rtw8814a_switch_band(rtwdev, new_band, bw);
++		rtwdev->hal.programmed_band_type = new_band;
++	}
+ 
+ 	rtw8814a_switch_channel(rtwdev, channel);
+ 
