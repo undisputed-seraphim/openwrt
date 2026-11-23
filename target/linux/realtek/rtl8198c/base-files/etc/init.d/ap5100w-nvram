@@ -7,5 +7,6 @@ START=18
 
 boot() {
 	/usr/sbin/ap5100w-nvram lanhwaddr >/dev/null 2>&1 || true
+	[ -x /usr/sbin/ap5100w-hwcal ] && /usr/sbin/ap5100w-hwcal
 	[ -x /usr/sbin/ap5100w-wifi ] && /usr/sbin/ap5100w-wifi
 }

@@ -1,0 +1,102 @@
+#!/bin/sh
+# Apply the per-unit factory TX power calibration from the vendor
+# "setting" partition to rtw88.
+#
+# The RTL8814AE modules on this board leave the efuse TX power index
+# unprogrammed (reads 0xff), so rtw88 computes the per-rate index from
+# garbage: the 2.4 GHz CCK rates wrap and clamp to the maximum, while
+# every OFDM/HT/VHT rate on both bands ends up at the minimum.  The
+# vendor's per-unit calibration is the only correct source for these
+# indices and cannot be baked into the image, so read it from the
+# "setting" partition at boot and hand it to the driver.
+#
+# The blob is a YAFFS file in mtd1.  /dev/mtd1 has no OOB, so the file is
+# only addressable by its "H601" signature; YAFFS garbage collection
+# moves it (it was at 0x125000 in the October dump and at 0x1e5000
+# later), hence the scan instead of a fixed offset.
+#
+# Layout is the vendor's packed hw_setting struct (realtek.h):
+#   +0x00 "H601" signature, +0x06 boardVer, +0x07 nic0, +0x0d nic1
+#   +0x13 wlan[0]  5 GHz module  (MACs .66-.69)
+#   +0x9e3 wlan[1] 2.4 GHz module (MACs .62-.65)
+# within a wlan: +48 cck_2g[14], +76 ht_2g[14], +163 ht_5g[196]
+# (per-wlan size 0x9d0; the second array starts one wlan later)
+#
+# Fail closed: no signature, implausible MACs, 0xff or an all-zero table
+# leaves the driver on its efuse path, which is the current behaviour.
+#
+# The setting partition is only ever read.  MAC addresses are not taken
+# from here; the nvdata reader owns those.
+
+SETTING=${SETTING:-/dev/mtd1}
+DBG=${DBG:-/sys/kernel/debug/ieee80211}
+
+W0=0x13		# wlan[0] offset in the blob
+W1=0x9e3	# wlan[1] offset in the blob
+OFF_CCK=48
+OFF_HT=76
+OFF_5G_HT=163
+
+log() { logger -t ap5100w-hwcal "$*" 2>/dev/null || true; }
+
+[ -r "$SETTING" ] || exit 0
+
+# debugfs must be mounted for the override node
+grep -qs "debugfs" /proc/mounts || \
+	mount -t debugfs none /sys/kernel/debug 2>/dev/null || true
+
+hexbytes() { # offset count
+	dd if="$SETTING" bs=1 skip="$1" count="$2" 2>/dev/null |
+		hexdump -v -e '1/1 "%02x"'
+}
+
+# Locate the calibration blob.  strings gives decimal offsets; the
+# signature can be glued to a preceding printable byte, so match inside
+# the string and add the position.
+off=$(dd if="$SETTING" 2>/dev/null | strings -t d -n 4 |
+	awk '{ i = index($2, "H601"); if (i) { print $1 + i - 1; exit } }')
+[ -n "$off" ] || exit 0
+
+# Sanity: both wlan blocks must begin with a unicast, non-empty MAC.
+for mac in "$((off + W0))" "$((off + W1))"; do
+	addr=$(hexbytes "$mac" 6)
+	case "$addr" in
+	""|000000000000|ffffffffffff) exit 0 ;;
+	esac
+	# reject multicast (low bit of the first octet)
+	case "$addr" in
+	?[13579bdf]*) exit 0 ;;
+	esac
+done
+
+cck2g=$(hexbytes "$((off + W1 + OFF_CCK))" 14)
+ht2g=$(hexbytes "$((off + W1 + OFF_HT))" 14)
+ht5g=$(hexbytes "$((off + W0 + OFF_5G_HT))" 196)
+
+# Truncated read, erased area or a table that was never programmed.
+case "$cck2g$ht2g$ht5g" in
+""|*ff*) exit 0 ;;
+esac
+[ "${#cck2g}" -eq 28 ] && [ "${#ht2g}" -eq 28 ] && [ "${#ht5g}" -eq 392 ] ||
+	exit 0
+
+written=0
+for phy in /sys/class/ieee80211/phy*; do
+	[ -e "$phy" ] || continue
+	path=$(readlink -f "$phy/device" 2>/dev/null)
+	case "$path" in
+	*0000:00:01.0*|*0000:01:00.0*|*0001:00:01.0*|*0001:01:00.0*) ;;
+	*) continue ;;
+	esac
+
+	node="$DBG/$(basename "$phy")/rtw88/tx_pwr_override"
+	[ -w "$node" ] || continue
+	# The same line is written to both radios: the driver only reads the
+	# arrays that match the channel it is on.
+	if printf '%s %s %s\n' "$cck2g" "$ht2g" "$ht5g" > "$node" 2>/dev/null; then
+		written=$((written + 1))
+	fi
+done
+
+[ "$written" -gt 0 ] && log "applied factory TX power calibration from $off"
+exit 0
